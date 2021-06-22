@@ -238,8 +238,7 @@ def get_res_and_downsample(dsm_path, temp_dir):
             target_res = 0.3  # downsample to this resolution (in meters)
             downsampling_factor = int(
                 target_res / gdal.Open(dsm_path).GetGeoTransform()[1]
-            )
-            downsampling_factor = 100
+            )            
             downsampled_dsm_path = os.path.join(temp_dir, dsm_name + "_ds.tif")
             # Dowmsampling DSM
             downsample_raster(dsm_path, downsampled_dsm_path, downsampling_factor)
@@ -249,8 +248,7 @@ def get_res_and_downsample(dsm_path, temp_dir):
             target_res = 2.514e-06  # downsample to this resolution (in degrees)
             downsampling_factor = int(
                 target_res / gdal.Open(dsm_path).GetGeoTransform()[1]
-            )
-            downsampling_factor = 100
+            )            
             downsampled_dsm_path = os.path.join(temp_dir, dsm_name + "_ds.tif")
             # Dowmsampling DSM
             downsample_raster(dsm_path, downsampled_dsm_path, downsampling_factor)
