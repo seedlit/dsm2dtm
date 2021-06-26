@@ -1,4 +1,7 @@
+<img align="right" width = 200 height=80 src="./data/logo.png">
+
 # dsm2dtm
+
 This repo generates DTM (Digital Terrain Model) from DSM (Digital Surface Model).
 
 #### Example: Input DSM and generated DTM
