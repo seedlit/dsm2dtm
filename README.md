@@ -21,5 +21,4 @@ Step 6: Install saga_cmd - `sudo apt update; sudo apt install saga` <br/>
 
 #### Usage
 Run the script dsm2dtm.py and pass the dsm path as argument. <br/>
-Example: `python dsm2dtm.py --dsm data/sample_dsm.tif` <br/> <br/>
-Example with parameters: `python main.py --dsm sample_data/sample_dsm.tif --rgb sample_data/sample_rgb_ortho.tif --num_processes 2 --start_elev 19500 --end_elev 19700 --step_size 5 --gif_duration 20 --opaquenes 0.7`
+Example: `python dsm2dtm.py --dsm data/sample_dsm.tif`
