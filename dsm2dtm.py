@@ -238,7 +238,7 @@ def get_res_and_downsample(dsm_path, temp_dir):
             target_res = 0.3  # downsample to this resolution (in meters)
             downsampling_factor = int(
                 target_res / gdal.Open(dsm_path).GetGeoTransform()[1]
-            )            
+            )
             downsampled_dsm_path = os.path.join(temp_dir, dsm_name + "_ds.tif")
             # Dowmsampling DSM
             downsample_raster(dsm_path, downsampled_dsm_path, downsampling_factor)
@@ -248,12 +248,28 @@ def get_res_and_downsample(dsm_path, temp_dir):
             target_res = 2.514e-06  # downsample to this resolution (in degrees)
             downsampling_factor = int(
                 target_res / gdal.Open(dsm_path).GetGeoTransform()[1]
-            )            
+            )
             downsampled_dsm_path = os.path.join(temp_dir, dsm_name + "_ds.tif")
             # Dowmsampling DSM
             downsample_raster(dsm_path, downsampled_dsm_path, downsampling_factor)
             dsm_path = downsampled_dsm_path
     return dsm_path
+
+
+def get_updated_params(dsm_path, search_radius, smoothen_radius):
+    # search_radius and smoothen_radius are set wrt to 30cm DSM
+    # returns updated parameters if DSM is of coarser resolution
+    x_res, y_res = get_raster_resolution(dsm_path)  # resolutions are in meters
+    dsm_crs = get_raster_crs(dsm_path)
+    if dsm_crs != 4326:
+        if x_res > 0.3 or y_res > 0.3:
+            search_radius = int((min(x_res, y_res) * search_radius) / 0.3)
+            smoothen_radius = int((min(x_res, y_res) * smoothen_radius) / 0.3)
+    else:
+        if x_res > 2.514e-06 or y_res > 2.514e-06:
+            search_radius = int((min(x_res, y_res) * search_radius) / 2.514e-06)
+            smoothen_radius = int((min(x_res, y_res) * smoothen_radius) / 2.514e-06)
+    return search_radius, smoothen_radius
 
 
 def main(
@@ -268,6 +284,10 @@ def main(
     temp_dir = os.path.join(out_dir, "temp_files")
     os.makedirs(temp_dir, exist_ok=True)
     dsm_path = get_res_and_downsample(dsm_path, temp_dir)
+    # get updated params wrt to DSM resolution
+    search_radius, smoothen_radius = get_updated_params(
+        dsm_path, search_radius, smoothen_radius
+    )
     # Generate DTM
     # STEP 1: Generate slope raster from dsm to get average slope value
     dsm_name = dsm_path.split("/")[-1].split(".")[0]
@@ -325,7 +345,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate DTM from DSM")
     parser.add_argument("--dsm", help="dsm path string")
     args = parser.parse_args()
-    dsm_path = args.dsm    
+    dsm_path = args.dsm
     out_dir = "generated_dtm"
     dtm_path = main(dsm_path, out_dir)
     print("######### DTM generated at: ", dtm_path)
