@@ -117,6 +117,14 @@ def save_array_as_geotif(array, source_tif_path, out_path):
     dataset = None
 
 
+def sdat_to_gtiff(sdat_raster_path, out_gtiff_path):
+    gdal.Translate(
+        out_gtiff_path,
+        sdat_raster_path,
+        format="GTiff",
+    )
+
+
 def close_gaps(in_path, out_path, threshold=0.1):
     """
     Interpolates the holes (no data value) in the input raster.
@@ -335,7 +343,8 @@ def main(
     # STEP 9: Convert to GeoTiff
     dtm_array = gdal.Open(dtm_path).ReadAsArray()
     dtm_tif_path = os.path.join(out_dir, dsm_name + "_dtm.tif")
-    save_array_as_geotif(dtm_array, dsm_path, dtm_tif_path)
+    # save_array_as_geotif(dtm_array, dsm_path, dtm_tif_path)
+    sdat_to_gtiff(dtm_path, dtm_tif_path)
     return dtm_tif_path
 
 
