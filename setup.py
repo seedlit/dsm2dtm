@@ -12,7 +12,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/seedlit/dsm2dtm",
-    packages=setuptools.find_packages(),
+    py_modules=['dsm2dtm'], # Sol for single file package: https://docs.python.org/3/distutils/introduction.html#a-simple-example
     include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3",
