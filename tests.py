@@ -1,5 +1,5 @@
 import os
-import dsm2dtm
+from dsm2dtm import dsm2dtm
 import shutil
 import gdal
 
