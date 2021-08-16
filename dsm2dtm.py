@@ -7,9 +7,13 @@ Author: Naman Jain
 
 import os
 import numpy as np
-import gdal
 import rasterio
 import argparse
+
+try:
+    import gdal
+except:
+    from osgeo import gdal
 
 
 def downsample_raster(in_path, out_path, downsampling_factor):

@@ -1,7 +1,11 @@
 import os
-from dsm2dtm import dsm2dtm
+import dsm2dtm
 import shutil
-import gdal
+
+try:
+    import gdal
+except:
+    from osgeo import gdal
 
 
 if __name__ == "__main__":
