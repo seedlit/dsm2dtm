@@ -21,6 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         conda create -n dsm2dtm_env python=3.6
+        source ~/anaconda3/etc/profile.d/conda.sh
         conda activate dsm2dtm_env
         conda install -c anaconda conda-build
         conda build conda-recipe
