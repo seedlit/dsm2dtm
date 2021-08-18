@@ -10,10 +10,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Set up Python 3.8
+    - name: Set up Python 3.6
       uses: actions/setup-python@v2
       with:
-        python-version: 3.8
+        python-version: 3.6
     - name: Add conda to system path
       run: |
         # $CONDA is an environment variable pointing to the root of the miniconda directory
@@ -22,9 +22,10 @@ jobs:
       run: |
         #conda env update --name base       
         conda create -n dsm2dtm_env python=3.6
-        source $CONDA/bin/activate
+        #source $CONDA/bin/activate
         conda info         
         #conda activate dsm2dtm_env
+        $CONDA/bin/activate dsm2dtm_env
         conda install -c conda-forge conda-build
         conda build conda-recipe
     - name: Lint with flake8
