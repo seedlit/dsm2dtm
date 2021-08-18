@@ -27,7 +27,7 @@ requirements:
     - python
   run:
     - python
-    - gdal >=3.0.*
+    - gdal
     - rasterio
     - numpy
 
