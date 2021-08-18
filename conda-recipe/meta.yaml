@@ -31,9 +31,9 @@ requirements:
     - rasterio >=1.2.*
     - numpy >=1.20.*
 
-# test:
-#   imports:
-#     - dsm2dtm
+test:
+  imports:
+    - dsm2dtm
 
 about:
   home: https://github.com/seedlit/dsm2dtm
