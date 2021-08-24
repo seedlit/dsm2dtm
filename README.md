@@ -11,7 +11,9 @@ This repo generates DTM (Digital Terrain Model) from DSM (Digital Surface Model)
 DSM was derived from [this point cloud data](https://cloud.rockrobotic.com/share/f42b5b69-c87c-4433-94f8-4bc0d8eaee90#lidar)
 ![example](./results/example2_dsm2dtm_hillside.png)
 
-#### Installation (These step are for Linux. This will differ a bit for MacOS and windows)
+### Installation
+If you use conda --> `conda install -c seedlit dsm2dtm`
+###### OR (These step are for Linux. This will differ a bit for MacOS and windows)
 Step 1: Clone the repo - `git clone https://github.com/seedlit/dsm2dtm.git` <br/>
 Step 2: Move in the folder - `cd dsm2dtm` <br/>
 Step 3: Create a virtual environment - `python3 -m venv venv` <br/>
