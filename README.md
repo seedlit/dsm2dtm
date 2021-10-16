@@ -12,7 +12,8 @@ This repo generates DTM (Digital Terrain Model) from DSM (Digital Surface Model)
 
 ## Installation 
 
-**Note**: We are unable to install Saga as part of the dependency, as it is not avilable on PyPI or conda.
+**Note**: We are unable to install Saga as part of the dependency, as it is not avilable on PyPI or conda. <br/>
+To install saga_cmd - `sudo apt update; sudo apt install saga`
 
 ### From Conda:
 ```bash
