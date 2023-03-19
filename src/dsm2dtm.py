@@ -7,6 +7,7 @@ Author: Naman Jain
 
 import os
 import numpy as np
+import richdem as rd
 import rasterio as rio
 from rasterio.enums import Resampling
 import argparse
@@ -59,19 +60,23 @@ def upsample_raster(in_path, out_path, target_height, target_width):
     pass
 
 
-def generate_slope_raster(in_path, out_path):
+def generate_slope_array(src_raster_path: str, no_data_value: int = -99999.0):
     """
-    Generates a slope raster from the input DEM raster.
-    Input:
-        in_path: {string} path to the DEM raster
-    Output:
-        out_path: {string} path to the generated slope image
+    Generates slope array from the input DSM raster.
+    
+    Parameters:
+        src_raster_path: Path to the source DSM.
+        no_data_value: No data value in the source DSM.
+                        Default value is -99999.0
+
+    Returns:
+        slope_array: Array representing the slope values for the source DSM.
     """
-    pass
-
-
-def get_mean(raster_path, ignore_value=-9999.0):
-    pass
+    with rio.open(src_raster_path) as raster:
+        array = np.squeeze(raster.read())
+        array = rd.rdarray(array, no_data=no_data_value)
+        slope_array = rd.TerrainAttribute(array, attrib='slope_riserun')
+        return slope_array
 
 
 def extract_dtm(dsm_path, ground_dem_path, non_ground_dem_path, radius, terrain_slope):
@@ -150,8 +155,26 @@ def smoothen_raster(in_path, out_path, radius=2):
     os.system(cmd)
 
 
-def subtract_rasters(rasterA_path, rasterB_path, out_path, no_data_value=-99999.0):
-    pass
+def subtract_rasters(rasterA_path: str, rasterB_path: str, out_path: str) -> str:
+    """
+    This function writes a new subtracted raster.
+
+    Parameters:
+        rasterA_path: Raster from which other raster will be subtracted.
+        rasterB_path: Raster which will be subtracted from the other raster.
+        out_path: Path where the subtracted raster will be generated.
+
+    Returns:
+        out_path: Path where the subtracted raster will be generated.
+    """
+    with rio.open(rasterA_path) as raster_a, rio.open(rasterB_path) as raster_b:
+        array_a = raster_a.read(masked=True)
+        array_b = raster_b.read(masked=True)
+        out_array = array_a - array_b
+        profile = raster_a.profile
+        with rio.open(out_path, "w", **profile) as dst:
+            dst.write(out_array)
+            return out_path
 
 
 def replace_values(
@@ -285,6 +308,7 @@ def main(
     search_radius=40,
     smoothen_radius=45,
     dsm_replace_threshold_val=0.98,
+    no_data_value = -99999.0,
 ):
     # master function that calls all other functions
     os.makedirs(out_dir, exist_ok=True)
@@ -302,8 +326,8 @@ def main(
     # STEP 1: Generate slope raster from dsm to get average slope value
     dsm_name = dsm_path.split("/")[-1].split(".")[0]
     dsm_slp_path = os.path.join(temp_dir, dsm_name + "_slp.tif")
-    generate_slope_raster(dsm_path, dsm_slp_path)
-    avg_slp = int(get_mean(dsm_slp_path))
+    slope_array = generate_slope_array(dsm_path, no_data_value=no_data_value)
+    avg_slp = slope_array.mean().item()
     # STEP 2: Split DSM into ground and non-ground surface rasters
     ground_dem_path = os.path.join(temp_dir, dsm_name + "_ground.sdat")
     non_ground_dem_path = os.path.join(temp_dir, dsm_name + "_non_ground.sdat")

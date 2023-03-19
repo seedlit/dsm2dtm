@@ -76,3 +76,20 @@ def test_get_updated_params(
     assert dsm2dtm.get_updated_params(
         x_res, y_res, crs, search_radius, smoothen_radius
     ) == (expected_search_radius, expected_smoothen_radius)
+
+
+@pytest.mark.parametrize(
+    "dsm_path, expected_height, expected_width, expected_mean_value",
+    [
+        (TEST_DSM1, 2866, 3159, 0.0980370044708252),
+        (TEST_DSM2, 1726, 1353, 3.7407186031341553),
+    ],
+)
+def test_generate_slope_array(dsm_path, expected_height, expected_width, expected_mean_value):
+    slope_array = dsm2dtm.generate_slope_array(dsm_path)
+    assert slope_array.shape == (expected_height, expected_width)
+    assert slope_array.mean().item() == expected_mean_value
+
+
+def test_subtract_rasters():
+    pass
