@@ -50,3 +50,8 @@ python dsm2dtm.py --dsm data/sample_dsm.tif
 ### Example2: Input DSM, generated DTM, and groundtruth DTM (Lidar derived) over a hillside terrain
 DSM was derived from [this point cloud data](https://cloud.rockrobotic.com/share/f42b5b69-c87c-4433-94f8-4bc0d8eaee90#lidar)
 ![example](./results/example2_dsm2dtm_hillside.png)
+
+## TODO
+ - Add tests
+ - Add poetry
+ - Add pre-commit hooks
