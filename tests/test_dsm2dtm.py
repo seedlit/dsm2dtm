@@ -1,4 +1,7 @@
+import tempfile
+from pathlib import Path
 import pytest
+import rasterio as rio
 from src import dsm2dtm
 
 
@@ -41,3 +44,14 @@ def test_get_raster_crs(test_dsm, expected_epsg):
 def test_get_downsampling_factor(x_res, y_res, crs, expected_result):
     downsampling_factor = dsm2dtm.get_downsampling_factor(x_res, y_res, crs)
     assert downsampling_factor == expected_result
+
+
+def test_downsample_raster():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        resampled_dsm_path = dsm2dtm.resample_raster(
+            TEST_DSM1, f"{tmpdir}/downsampled_dsm.tif", 0.1
+        )
+        assert Path(resampled_dsm_path).is_file()
+        with rio.open(resampled_dsm_path) as raster:
+            assert raster.transform[0] == 2.5209333333325248e-06
+            assert raster.transform[4] == -2.5192622377644984e-06

@@ -8,14 +8,46 @@ Author: Naman Jain
 import os
 import numpy as np
 import rasterio as rio
+from rasterio.enums import Resampling
 import argparse
 from typing import Tuple
 from src.constants import TARGET_RES_UTM, TARGET_RES_WGS
 
 
-def downsample_raster(in_path, out_path, downsampling_factor):
-    pass
+def resample_raster(src_raster_path: str, resampled_raster_path: str, resampling_factor: float) -> str:
+    """
+    Generates a new resampled raster.
 
+    Parameters:
+        src_raster_path: Path to the source raster.
+        resampled_raster_path: Path where the resampled raster will be generated.
+        resampling_factor: Factor by which the source raster will be resampled.
+
+    Returns:
+        resampled_raster_path: Path where the resampled raster will be generated.
+    """
+    with rio.open(src_raster_path) as raster:
+        # resample data to target shape
+        data = raster.read(
+            out_shape=(
+                raster.count,
+                int(raster.height * resampling_factor),
+                int(raster.width * resampling_factor)
+            ),
+            resampling=Resampling.bilinear
+        )
+        # scale image transform
+        transform = raster.transform * raster.transform.scale(
+            (raster.width / data.shape[-1]),
+            (raster.height / data.shape[-2])
+        )
+        profile = raster.profile
+        profile.update(transform=transform, height = int(raster.height * resampling_factor), width = (raster.width * resampling_factor))
+        # import ipdb
+        # ipdb.set_trace()
+        with rio.open(resampled_raster_path, "w", **profile) as dst:
+            dst.write(data)
+    return resampled_raster_path
 
 def upsample_raster(in_path, out_path, target_height, target_width):
     pass
@@ -208,6 +240,7 @@ def get_downsampling_factor(x_res: float, y_res: float, raster_crs: int) -> floa
     downsampling_factor = 1
     if raster_crs != 4326:
         target_res = TARGET_RES_UTM
+        # rounding in case of metres because of too much precision like 8 decimal places, eg: 0.29999997
         x_res = round(x_res, 2)
         y_res = round(x_res, 2)
     else:
@@ -231,7 +264,7 @@ def main(
     x_res, y_res = get_raster_resolution(dsm_path)
     dsm_crs = get_raster_crs(dsm_path)
     downsampling_factor = get_downsampling_factor(x_res, y_res, dsm_crs)
-    dsm_path = downsample_raster(dsm_path, temp_dir, downsampling_factor)
+    dsm_path = resample_raster(dsm_path, temp_dir, downsampling_factor)
     # get updated params wrt to DSM resolution
     search_radius, smoothen_radius = get_updated_params(
         dsm_path, search_radius, smoothen_radius
