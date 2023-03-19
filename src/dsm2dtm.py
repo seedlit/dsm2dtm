@@ -140,14 +140,19 @@ def expand_holes_in_raster(
     pass
 
 
-def get_raster_crs(raster_path):
+def get_raster_crs(raster_path: str) -> int:
     """
-    Returns the CRS (Coordinate Reference System) of the raster
-    Input:
-        raster_path: {string} path to the source tif image
+    Returns the CRS (Coordinate Reference System) of the source raster
+    
+    Parameters:
+        raster_path: Path to the source raster.
+    
+    Returns:
+        crs: EPSG value of the Coordinate Reference System.
     """
-    raster = rio.open(raster_path)
-    return raster.crs
+    with rio.open(raster_path) as raster:
+        crs =  raster.crs.to_epsg()
+        return crs
 
 
 def get_raster_resolution(raster_path: str) -> Tuple[float, float]:
@@ -188,8 +193,29 @@ def get_updated_params(dsm_path, search_radius, smoothen_radius):
     return search_radius, smoothen_radius
 
 
-def get_downsampling_factor(current_res_x, current_res_y, raster_crs):
-    pass
+def get_downsampling_factor(x_res: float, y_res: float, raster_crs: int) -> float:
+    """
+    Returns the downsampling factor based on raster CRS.
+
+    Parameters:
+        x_res: Resolution of the cell in X direction.
+        y_res: Resolution of the cell in Y direction.
+        raster_crs: EPSG value of the Coordinate Reference System.
+
+    Returns:
+        downsampling_factor: Factor by which the source raster needs to be downsampled.
+    """
+    downsampling_factor = 1
+    if raster_crs != 4326:
+        target_res = TARGET_RES_UTM
+        x_res = round(x_res, 2)
+        y_res = round(x_res, 2)
+    else:
+        target_res = TARGET_RES_WGS
+    if x_res < target_res or y_res < target_res:
+        downsampling_factor = target_res / min(x_res, y_res)
+    return downsampling_factor
+            
 
 def main(
     dsm_path,
