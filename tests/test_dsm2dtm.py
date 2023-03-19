@@ -55,3 +55,24 @@ def test_downsample_raster():
         with rio.open(resampled_dsm_path) as raster:
             assert raster.transform[0] == 2.5209333333325248e-06
             assert raster.transform[4] == -2.5192622377644984e-06
+
+
+@pytest.mark.parametrize(
+    "x_res, y_res, crs, search_radius, smoothen_radius, expected_search_radius, expected_smoothen_radius",
+    [
+        (2.513751187083714e-07, 2.51398813677825e-07, 4326, 40, 45, 40, 45),
+        (0.30014781965999754, 0.29999999999989213, 32610, 40, 45, 39, 44),
+    ],
+)
+def test_get_updated_params(
+    x_res,
+    y_res,
+    crs,
+    search_radius,
+    smoothen_radius,
+    expected_search_radius,
+    expected_smoothen_radius,
+):
+    assert dsm2dtm.get_updated_params(
+        x_res, y_res, crs, search_radius, smoothen_radius
+    ) == (expected_search_radius, expected_smoothen_radius)

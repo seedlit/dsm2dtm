@@ -14,7 +14,9 @@ from typing import Tuple
 from src.constants import TARGET_RES_UTM, TARGET_RES_WGS
 
 
-def resample_raster(src_raster_path: str, resampled_raster_path: str, resampling_factor: float) -> str:
+def resample_raster(
+    src_raster_path: str, resampled_raster_path: str, resampling_factor: float
+) -> str:
     """
     Generates a new resampled raster.
 
@@ -32,22 +34,26 @@ def resample_raster(src_raster_path: str, resampled_raster_path: str, resampling
             out_shape=(
                 raster.count,
                 int(raster.height * resampling_factor),
-                int(raster.width * resampling_factor)
+                int(raster.width * resampling_factor),
             ),
-            resampling=Resampling.bilinear
+            resampling=Resampling.bilinear,
         )
         # scale image transform
         transform = raster.transform * raster.transform.scale(
-            (raster.width / data.shape[-1]),
-            (raster.height / data.shape[-2])
+            (raster.width / data.shape[-1]), (raster.height / data.shape[-2])
         )
         profile = raster.profile
-        profile.update(transform=transform, height = int(raster.height * resampling_factor), width = (raster.width * resampling_factor))
+        profile.update(
+            transform=transform,
+            height=int(raster.height * resampling_factor),
+            width=(raster.width * resampling_factor),
+        )
         # import ipdb
         # ipdb.set_trace()
         with rio.open(resampled_raster_path, "w", **profile) as dst:
             dst.write(data)
     return resampled_raster_path
+
 
 def upsample_raster(in_path, out_path, target_height, target_width):
     pass
@@ -63,8 +69,10 @@ def generate_slope_raster(in_path, out_path):
     """
     pass
 
+
 def get_mean(raster_path, ignore_value=-9999.0):
     pass
+
 
 def extract_dtm(dsm_path, ground_dem_path, non_ground_dem_path, radius, terrain_slope):
     """
@@ -107,6 +115,7 @@ def save_array_as_geotif(array, source_tif_path, out_path):
     """
     pass
 
+
 def sdat_to_gtiff(sdat_raster_path, out_gtiff_path):
     pass
 
@@ -144,6 +153,7 @@ def smoothen_raster(in_path, out_path, radius=2):
 def subtract_rasters(rasterA_path, rasterB_path, out_path, no_data_value=-99999.0):
     pass
 
+
 def replace_values(
     rasterA_path, rasterB_path, out_path, no_data_value=-99999.0, threshold=0.98
 ):
@@ -156,6 +166,7 @@ def replace_values(
         out_path: {string} path to the generated raster
     """
     pass
+
 
 def expand_holes_in_raster(
     in_path, search_window=7, no_data_value=-99999.0, threshold=50
@@ -175,15 +186,15 @@ def expand_holes_in_raster(
 def get_raster_crs(raster_path: str) -> int:
     """
     Returns the CRS (Coordinate Reference System) of the source raster
-    
+
     Parameters:
         raster_path: Path to the source raster.
-    
+
     Returns:
         crs: EPSG value of the Coordinate Reference System.
     """
     with rio.open(raster_path) as raster:
-        crs =  raster.crs.to_epsg()
+        crs = raster.crs.to_epsg()
         return crs
 
 
@@ -203,25 +214,43 @@ def get_raster_resolution(raster_path: str) -> Tuple[float, float]:
         y_res = -(raster.transform[4])
         # taking a negative for y_res as we are interested in the abslute value
         return x_res, y_res
-    
+
 
 def get_res_and_downsample(dsm_path, temp_dir):
     # check DSM resolution. Downsample if DSM is of very high resolution to save processing time.
     pass
 
-def get_updated_params(dsm_path, search_radius, smoothen_radius):
-    # search_radius and smoothen_radius are set wrt to 30cm DSM
-    # returns updated parameters if DSM is of coarser resolution
-    x_res, y_res = get_raster_resolution(dsm_path)  # resolutions are in meters
-    dsm_crs = get_raster_crs(dsm_path)
+
+def get_updated_params(
+    x_res: float, y_res: float, dsm_crs: int, search_radius: int, smoothen_radius: int
+) -> Tuple[int, int]:
+    """
+    Parameters search_radius and smoothen_radius are set wrt to 30cm DSM.
+    This function returns updated parameters if DSM is of coarser resolution.
+
+    Parameters:
+        x_res: Resolution of the cell in X direction.
+        y_res: Resolution of the cell in Y direction.
+        dsm_crs: EPSG value of the Coordinate Reference System.
+        search_radius: Search radius of kernel (unit: no. of cells).
+        smoothen_radius: Kernel radius to be used for smoothing (unit: no. of cells)
+
+    Returns:
+        search_radius: Updated Search radius of kernel
+        smoothen_radius: Updated Kernel radius to be used for smoothing
+    """
     if dsm_crs != 4326:
         if x_res > TARGET_RES_UTM or y_res > TARGET_RES_UTM:
             search_radius = int((min(x_res, y_res) * search_radius) / TARGET_RES_UTM)
-            smoothen_radius = int((min(x_res, y_res) * smoothen_radius) / TARGET_RES_UTM)
+            smoothen_radius = int(
+                (min(x_res, y_res) * smoothen_radius) / TARGET_RES_UTM
+            )
     else:
         if x_res > TARGET_RES_WGS or y_res > TARGET_RES_WGS:
             search_radius = int((min(x_res, y_res) * search_radius) / TARGET_RES_WGS)
-            smoothen_radius = int((min(x_res, y_res) * smoothen_radius) / TARGET_RES_WGS)
+            smoothen_radius = int(
+                (min(x_res, y_res) * smoothen_radius) / TARGET_RES_WGS
+            )
     return search_radius, smoothen_radius
 
 
@@ -248,7 +277,7 @@ def get_downsampling_factor(x_res: float, y_res: float, raster_crs: int) -> floa
     if x_res < target_res or y_res < target_res:
         downsampling_factor = target_res / min(x_res, y_res)
     return downsampling_factor
-            
+
 
 def main(
     dsm_path,
@@ -323,7 +352,6 @@ def main(
 
 # -----------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description="Generate DTM from DSM")
     parser.add_argument("--dsm", help="dsm path string")
     args = parser.parse_args()
