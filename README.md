@@ -52,6 +52,8 @@ DSM was derived from [this point cloud data](https://cloud.rockrobotic.com/share
 ![example](./results/example2_dsm2dtm_hillside.png)
 
 ## TODO
- - Add tests
- - Add poetry
- - Add pre-commit hooks
+ - Add tests and coverage
+ - Add poetry (with separate dependencies for dev: black, isort, pyest, etc.)
+ - Add pre-commit hooks (isort, black, mypy)
+ - Add documentation
+ - Move test file(s) to remote server OR use gitlfs OR use fake-geo-images

@@ -7,9 +7,10 @@ Author: Naman Jain
 
 import os
 import numpy as np
-import rasterio
+import rasterio as rio
 import argparse
-from constants import TARGET_RES_UTM, TARGET_RES_WGS
+from typing import Tuple
+from src.constants import TARGET_RES_UTM, TARGET_RES_WGS
 
 
 def downsample_raster(in_path, out_path, downsampling_factor):
@@ -145,12 +146,27 @@ def get_raster_crs(raster_path):
     Input:
         raster_path: {string} path to the source tif image
     """
-    raster = rasterio.open(raster_path)
+    raster = rio.open(raster_path)
     return raster.crs
 
 
-def get_raster_resolution(raster_path):
-    pass
+def get_raster_resolution(raster_path: str) -> Tuple[float, float]:
+    """
+    Returns the absolute values of x and y resolution of the raster.
+
+    Paramteres:
+        raster_path: Path to the source raster.
+
+    Returns:
+        x_res: Resolution of the cell in X direction.
+        y_res: Resolution of the cell in Y direction.
+    """
+    with rio.open(raster_path) as raster:
+        x_res = raster.transform[0]
+        y_res = -(raster.transform[4])
+        # taking a negative for y_res as we are interested in the abslute value
+        return x_res, y_res
+    
 
 def get_res_and_downsample(dsm_path, temp_dir):
     # check DSM resolution. Downsample if DSM is of very high resolution to save processing time.
@@ -162,13 +178,13 @@ def get_updated_params(dsm_path, search_radius, smoothen_radius):
     x_res, y_res = get_raster_resolution(dsm_path)  # resolutions are in meters
     dsm_crs = get_raster_crs(dsm_path)
     if dsm_crs != 4326:
-        if x_res > 0.3 or y_res > 0.3:
-            search_radius = int((min(x_res, y_res) * search_radius) / 0.3)
-            smoothen_radius = int((min(x_res, y_res) * smoothen_radius) / 0.3)
+        if x_res > TARGET_RES_UTM or y_res > TARGET_RES_UTM:
+            search_radius = int((min(x_res, y_res) * search_radius) / TARGET_RES_UTM)
+            smoothen_radius = int((min(x_res, y_res) * smoothen_radius) / TARGET_RES_UTM)
     else:
-        if x_res > 2.514e-06 or y_res > 2.514e-06:
-            search_radius = int((min(x_res, y_res) * search_radius) / 2.514e-06)
-            smoothen_radius = int((min(x_res, y_res) * smoothen_radius) / 2.514e-06)
+        if x_res > TARGET_RES_WGS or y_res > TARGET_RES_WGS:
+            search_radius = int((min(x_res, y_res) * search_radius) / TARGET_RES_WGS)
+            smoothen_radius = int((min(x_res, y_res) * smoothen_radius) / TARGET_RES_WGS)
     return search_radius, smoothen_radius
 
 
