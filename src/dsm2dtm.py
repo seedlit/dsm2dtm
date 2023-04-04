@@ -12,7 +12,7 @@ import rasterio as rio
 from rasterio.enums import Resampling
 import argparse
 from typing import Tuple
-from src.constants import TARGET_RES_UTM, TARGET_RES_WGS
+from src.constants import TARGET_RES_UTM, TARGET_RES_WGS, NOISE_DEVIATION_FACTOR
 
 
 def resample_raster(
@@ -96,17 +96,22 @@ def extract_dtm(dsm_path, ground_dem_path, non_ground_dem_path, radius, terrain_
     os.system(cmd)
 
 
-def remove_noise(ground_dem_path, out_path, ignore_value=-99999.0):
+def remove_noise(src_array:np.ndarray, no_data_value:float =-99999.0):
     """
-    Removes noise (high elevation data points like roofs, etc.) from the ground DEM raster.
-    Replaces values in those pixels with No data Value (-99999.0)
-    Input:
-        ground_dem_path: {string} path to the generated ground DEM raster
-        no_data_value: {float} replacing value in the ground raster (to be treated as No Data Value)
-    Output:
-        out_path: {string} path to the filtered ground DEM raster
+    Replaces noise (high elevation data points like roofs, etc.) from the ground DEM array, with no_data_value.
+    
+    Arguments:
+        src_array: Numpy array representing ground DEM
+        no_data_value: Float value that will be treated as no-data-value by GIS softwares (like QGIS).
+    
+    Returns:
+        Numpy array with replaced noise values.
     """
-    pass
+    std = src_array[src_array != no_data_value].std()
+    mean = src_array[src_array != no_data_value].mean()
+    threshold_value = mean + NOISE_DEVIATION_FACTOR * std
+    src_array[src_array >= threshold_value] = no_data_value
+    return src_array
 
 
 def save_array_as_geotif(array, source_tif_path, out_path):
@@ -180,21 +185,21 @@ def subtract_rasters(rasterA_path: str, rasterB_path: str, out_path: str) -> str
 
 
 def replace_values(
-    rasterA_path: str, rasterB_path: str, no_data_value: int=-99999.0, threshold:float=0.98
+    raster_a_path: str, raster_b_path: str, no_data_value: int=-99999.0, threshold:float=0.98
 ) -> np.ndarray:
     """
     Replaces values in input rasterA with no_data_value where cell value >= threshold in rasterB.
 
     Parameters:
-        rasterA_path: Raster in which the values will be replaced.
-        rasterB_path: Raster based on which the values will be replaced.
+        raster_a_path: Raster in which the values will be replaced.
+        raster_b_path: Raster based on which the values will be replaced.
         no_data_value: Float value that will be treated as no-data-value by GIS softwares (like QGIS).
         threshold: Float value in rasterB based on which valued will be replaced in rasterA.
 
     Returns:
         updated_array: Numpy array with replaced values in raster A.
     """
-    with rio.open(rasterA_path) as raster_a, rio.open(rasterB_path) as raster_b:
+    with rio.open(raster_a_path) as raster_a, rio.open(raster_b_path) as raster_b:
         array_a = raster_a.read(masked=True)
         array_b = raster_b.read(masked=True)
         np.place(array_a, array_b>=threshold, [no_data_value])
@@ -203,19 +208,39 @@ def replace_values(
 
 
 
-def expand_holes_in_raster(
-    in_path, search_window=7, no_data_value=-99999.0, threshold=50
+def expand_holes_in_array(
+    src_array: np.ndarray, search_window: int=7, no_data_value: float=-99999.0, threshold: float=50
 ):
     """
-    Expands holes (cells with no_data_value) in the input raster.
-    Input:
-        in_path: {string} path to the input raster
-        search_window: {int} kernel size to be used as window
-        threshold: {float} threshold on percentage of cells with no_data_value
-    Output:
-        np_raster: {numpy array} Returns the modified input raster's array
+    Expands holes (cells with no_data_value) in the input array.
+    
+    Arguments:
+        src_array: Numpy arrray representing ground DEM.
+        search_window: kernel size to be used as window
+        threshold: threshold on percentage of cells with no_data_value
+    
+    Returns:
+        Numpy array with expanded holes.
     """
-    pass
+    #TODO: refactor
+    height, width = src_array.shape[0], src_array.shape[1]
+    for i in range(int((search_window - 1) / 2), width, 1):
+        for j in range(int((search_window - 1) / 2), height, 1):
+            window = src_array[
+                int(i - (search_window - 1) / 2) : int(i - (search_window - 1) / 2)
+                + search_window,
+                int(j - (search_window - 1) / 2) : int(j - (search_window - 1) / 2)
+                + search_window,
+            ]
+            if (
+                np.count_nonzero(window == no_data_value)
+                >= (threshold * search_window ** 2) / 100
+            ):
+                try:
+                    src_array[i, j] = no_data_value
+                except:
+                    pass
+    return src_array
 
 
 def get_raster_crs(raster_path: str) -> int:
@@ -332,7 +357,7 @@ def main(
     dsm_path = resample_raster(dsm_path, temp_dir, downsampling_factor)
     # get updated params wrt to DSM resolution
     search_radius, smoothen_radius = get_updated_params(
-        dsm_path, search_radius, smoothen_radius
+        x_res, y_res, dsm_crs, search_radius, smoothen_radius
     )
     # Generate DTM
     # STEP 1: Generate slope raster from dsm to get average slope value
@@ -356,29 +381,24 @@ def main(
     diff_raster_path = os.path.join(temp_dir, dsm_name + "_ground_diff.sdat")
     diff_raster_path = subtract_rasters(ground_dem_path, smoothened_ground_path, diff_raster_path)
     # STEP 5: Thresholding on the difference raster to replace values in Ground DEM by no-data values (threshold = 0.98)
-    thresholded_ground_path = os.path.join(
-        temp_dir, dsm_name + "_ground_thresholded.sdat"
-    )
-    replace_values(
+    ground_array = replace_values(
         ground_dem_path,
         diff_raster_path,
-        thresholded_ground_path,
+        no_data_value=no_data_value,
         threshold=dsm_replace_threshold_val,
     )
     # STEP 6: Removing noisy spikes from the generated DTM
-    ground_dem_filtered_path = os.path.join(temp_dir, dsm_name + "_ground_filtered.tif")
-    remove_noise(thresholded_ground_path, ground_dem_filtered_path)
+    ground_array = remove_noise(ground_array, no_data_value=no_data_value)
     # STEP 7: Expanding holes in the thresholded ground raster
     bigger_holes_ground_path = os.path.join(
         temp_dir, dsm_name + "_ground_bigger_holes.sdat"
     )
-    temp = expand_holes_in_raster(ground_dem_filtered_path)
-    save_array_as_geotif(temp, ground_dem_filtered_path, bigger_holes_ground_path)
+    ground_array = expand_holes_in_array(ground_array, no_data_value=no_data_value)
+    save_array_as_geotif(ground_array, ground_dem_filtered_path, bigger_holes_ground_path)
     # STEP 8: Close gaps in the DTM
     dtm_path = os.path.join(temp_dir, dsm_name + "_dtm.sdat")
     close_gaps(bigger_holes_ground_path, dtm_path)
     # STEP 9: Convert to GeoTiff
-    dtm_array = gdal.Open(dtm_path).ReadAsArray()
     dtm_tif_path = os.path.join(out_dir, dsm_name + "_dtm.tif")
     # save_array_as_geotif(dtm_array, dsm_path, dtm_tif_path)
     sdat_to_gtiff(dtm_path, dtm_tif_path)

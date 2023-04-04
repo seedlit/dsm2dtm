@@ -7,7 +7,7 @@ from src import dsm2dtm
 
 TEST_DSM1 = "data/sample_dsm.tif"
 TEST_DSM2 = "data/sample_hiilside_dsm_30cm.tif"
-
+# TODO: add tests for .sdat files
 
 @pytest.mark.parametrize(
     "test_dsm, expected_x_res, expected_y_res",
@@ -108,3 +108,10 @@ def test_replace_values():
     assert new_array.shape == (2866, 3159)
     assert new_array[1256, 786] == 0
     assert new_array.mean() == 24.193619974344173
+
+
+def test_remove_noise():
+    pass
+
+def test_expand_holes_in_array():
+    pass
