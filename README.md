@@ -58,3 +58,4 @@ DSM was derived from [this point cloud data](https://cloud.rockrobotic.com/share
  - Add documentation
  - Move test file(s) to remote server OR use gitlfs OR use fake-geo-images
  - Reduce I/O by passing rasterio object instead of raster path
+ - Add exception handling

@@ -167,6 +167,8 @@ def subtract_rasters(rasterA_path: str, rasterB_path: str, out_path: str) -> str
     Returns:
         out_path: Path where the subtracted raster will be generated.
     """
+    # TODO: catch exception in case rasters are of different shape and raise 
+    # proper error message
     with rio.open(rasterA_path) as raster_a, rio.open(rasterB_path) as raster_b:
         array_a = raster_a.read(masked=True)
         array_b = raster_b.read(masked=True)
@@ -178,17 +180,27 @@ def subtract_rasters(rasterA_path: str, rasterB_path: str, out_path: str) -> str
 
 
 def replace_values(
-    rasterA_path, rasterB_path, out_path, no_data_value=-99999.0, threshold=0.98
-):
+    rasterA_path: str, rasterB_path: str, no_data_value: int=-99999.0, threshold:float=0.98
+) -> np.ndarray:
     """
-    Replaces values in input rasterA with no_data_value where cell value >= threshold in rasterB
-    Input:
-        rasterA_path: {string} path to the input rasterA
-        rasterB_path: {string} path to the input rasterB
-    Output:
-        out_path: {string} path to the generated raster
+    Replaces values in input rasterA with no_data_value where cell value >= threshold in rasterB.
+
+    Parameters:
+        rasterA_path: Raster in which the values will be replaced.
+        rasterB_path: Raster based on which the values will be replaced.
+        no_data_value: Float value that will be treated as no-data-value by GIS softwares (like QGIS).
+        threshold: Float value in rasterB based on which valued will be replaced in rasterA.
+
+    Returns:
+        updated_array: Numpy array with replaced values in raster A.
     """
-    pass
+    with rio.open(rasterA_path) as raster_a, rio.open(rasterB_path) as raster_b:
+        array_a = raster_a.read(masked=True)
+        array_b = raster_b.read(masked=True)
+        np.place(array_a, array_b>=threshold, [no_data_value])
+        updated_array = np.squeeze(array_a)
+        return updated_array
+
 
 
 def expand_holes_in_raster(
@@ -325,7 +337,6 @@ def main(
     # Generate DTM
     # STEP 1: Generate slope raster from dsm to get average slope value
     dsm_name = dsm_path.split("/")[-1].split(".")[0]
-    dsm_slp_path = os.path.join(temp_dir, dsm_name + "_slp.tif")
     slope_array = generate_slope_array(dsm_path, no_data_value=no_data_value)
     avg_slp = slope_array.mean().item()
     # STEP 2: Split DSM into ground and non-ground surface rasters
@@ -343,7 +354,7 @@ def main(
     smoothen_raster(ground_dem_path, smoothened_ground_path, smoothen_radius)
     # STEP 4: Generating a difference raster (ground DEM - smoothened ground DEM)
     diff_raster_path = os.path.join(temp_dir, dsm_name + "_ground_diff.sdat")
-    subtract_rasters(ground_dem_path, smoothened_ground_path, diff_raster_path)
+    diff_raster_path = subtract_rasters(ground_dem_path, smoothened_ground_path, diff_raster_path)
     # STEP 5: Thresholding on the difference raster to replace values in Ground DEM by no-data values (threshold = 0.98)
     thresholded_ground_path = os.path.join(
         temp_dir, dsm_name + "_ground_thresholded.sdat"
