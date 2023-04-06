@@ -394,7 +394,7 @@ def main(
         temp_dir, dsm_name + "_ground_bigger_holes.sdat"
     )
     ground_array = expand_holes_in_array(ground_array, no_data_value=no_data_value)
-    save_array_as_geotif(ground_array, ground_dem_filtered_path, bigger_holes_ground_path)
+    save_array_as_geotif(ground_array, diff_raster_path, bigger_holes_ground_path)
     # STEP 8: Close gaps in the DTM
     dtm_path = os.path.join(temp_dir, dsm_name + "_dtm.sdat")
     close_gaps(bigger_holes_ground_path, dtm_path)

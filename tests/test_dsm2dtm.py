@@ -2,12 +2,14 @@ import tempfile
 from pathlib import Path
 import pytest
 import rasterio as rio
+import numpy as np
 from src import dsm2dtm
 
 
 TEST_DSM1 = "data/sample_dsm.tif"
 TEST_DSM2 = "data/sample_hiilside_dsm_30cm.tif"
 # TODO: add tests for .sdat files
+
 
 @pytest.mark.parametrize(
     "test_dsm, expected_x_res, expected_y_res",
@@ -111,7 +113,16 @@ def test_replace_values():
 
 
 def test_remove_noise():
-    pass
+    with rio.open(TEST_DSM1) as raster:
+        test_array = raster.read()
+        new_array = np.squeeze(dsm2dtm.remove_noise(test_array))
+        assert new_array.shape == (2866, 3159)
+        assert float(new_array.mean()) == -23043.646484375
+
 
 def test_expand_holes_in_array():
-    pass
+    with rio.open(TEST_DSM1) as raster:
+        test_array = raster.read()
+        new_array = np.squeeze(dsm2dtm.expand_holes_in_array(test_array))
+        assert new_array.shape == (2866, 3159)
+        assert float(new_array.mean()) == 63.69542694091797
