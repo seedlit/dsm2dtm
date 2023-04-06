@@ -10,17 +10,17 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Set up Python 3.6
+    - name: Set up Python 3.8
       uses: actions/setup-python@v2
       with:
-        python-version: 3.6
+        python-version: 3.8
     - name: Add conda to system path
       run: |
         # $CONDA is an environment variable pointing to the root of the miniconda directory
         echo $CONDA/bin >> $GITHUB_PATH
     - name: Install dependencies
       run: |
-        conda create -n dsm2dtm_env python=3.6
+        conda create -n dsm2dtm_env python=3.8
         conda info         
         $CONDA/bin/activate dsm2dtm_env
         conda config --prepend channels conda-forge
