@@ -12,14 +12,16 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/seedlit/dsm2dtm",
-    py_modules=['dsm2dtm'], # Sol for single file package: https://docs.python.org/3/distutils/introduction.html#a-simple-example
+    py_modules=[
+        "dsm2dtm"
+    ],  # Sol for single file package: https://docs.python.org/3/distutils/introduction.html#a-simple-example
     include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Topic :: Scientific/Engineering",
@@ -28,10 +30,9 @@ setuptools.setup(
         "Intended Audience :: Science/Research",
         "Development Status :: 4 - Beta",
     ],
-    python_requires=">=3.6",
+    python_requires=">=3.8",
     install_requires=[
         "numpy>=1.20.3",
-        "GDAL>=3.0.4",
-        "rasterio>=1.2.5",        
+        "rasterio>=1.2.5",
     ],
 )
