@@ -1,6 +1,7 @@
 import os
-import dsm2dtm
 import shutil
+
+import dsm2dtm
 
 try:
     import gdal
@@ -9,7 +10,6 @@ except:
 
 
 if __name__ == "__main__":
-
     dsm_path = "data/sample_dsm.tif"
     out_dir = "test_results"
 

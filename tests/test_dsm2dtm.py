@@ -1,10 +1,11 @@
 import tempfile
 from pathlib import Path
+
+import numpy as np
 import pytest
 import rasterio as rio
-import numpy as np
-from src import dsm2dtm
 
+from src import dsm2dtm
 
 TEST_DSM1 = "data/sample_dsm.tif"
 TEST_DSM2 = "data/sample_hiilside_dsm_30cm.tif"

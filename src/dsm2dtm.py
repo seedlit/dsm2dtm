@@ -5,14 +5,17 @@ Author: Naman Jain
         www.namanji.wixsite.com/naman/
 """
 
-import os
-import numpy as np
-import richdem as rd
-import rasterio as rio
-from rasterio.enums import Resampling
 import argparse
+import os
 from typing import Tuple
-from src.constants import TARGET_RES_UTM, TARGET_RES_WGS, NOISE_DEVIATION_FACTOR
+
+import numpy as np
+import rasterio as rio
+import richdem as rd
+from rasterio.enums import Resampling
+
+from src.constants import (NOISE_DEVIATION_FACTOR, TARGET_RES_UTM,
+                           TARGET_RES_WGS)
 
 
 def resample_raster(
