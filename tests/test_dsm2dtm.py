@@ -126,3 +126,7 @@ def test_expand_holes_in_array():
         new_array = np.squeeze(dsm2dtm.expand_holes_in_array(test_array))
         assert new_array.shape == (2866, 3159)
         assert float(new_array.mean()) == 63.69542694091797
+
+
+def test_extract_dtm():
+    pass
