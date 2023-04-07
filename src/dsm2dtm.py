@@ -14,8 +14,7 @@ import rasterio as rio
 import richdem as rd
 from rasterio.enums import Resampling
 
-from src.constants import (NOISE_DEVIATION_FACTOR, TARGET_RES_UTM,
-                           TARGET_RES_WGS)
+from src.constants import NOISE_DEVIATION_FACTOR, TARGET_RES_UTM, TARGET_RES_WGS
 
 
 def resample_raster(
@@ -59,10 +58,6 @@ def resample_raster(
     return resampled_raster_path
 
 
-def upsample_raster(in_path, out_path, target_height, target_width):
-    pass
-
-
 def generate_slope_array(src_raster_path: str, no_data_value: int = -99999.0):
     """
     Generates slope array from the input DSM raster.
@@ -82,20 +77,17 @@ def generate_slope_array(src_raster_path: str, no_data_value: int = -99999.0):
         return slope_array
 
 
-def extract_dtm(dsm_path, ground_dem_path, non_ground_dem_path, radius, terrain_slope):
+def extract_dtm(dsm_path: str, out_ground_path: str, radius: int, terrain_slope: float):
     """
-    Generates a ground DEM and non-ground DEM raster from the input DSM raster.
-    Input:
-        dsm_path: {string} path to the DSM raster
-        radius: {int} Search radius of kernel in cells.
-        terrain_slope: {float} average slope of the input terrain
-    Output:
-        ground_dem_path: {string} path to the generated ground DEM raster
-        non_ground_dem_path: {string} path to the generated non-ground DEM raster
+    Generates a ground DEM from the input DSM raster.
+
+    Arguments:
+        dsm_path: Path to the source DSM raster.
+        out_ground_path = Path where the ground DEM will be generated.
+        radius: Search radius of kernel in cells.
+        terrain_slope: Average slope of the input terrain.
     """
-    cmd = "saga_cmd grid_filter 7 -INPUT {} -RADIUS {} -TERRAINSLOPE {} -GROUND {} -NONGROUND {}".format(
-        dsm_path, radius, terrain_slope, ground_dem_path, non_ground_dem_path
-    )
+    cmd = f"saga_cmd grid_filter 7 -INPUT {dsm_path} -RADIUS {radius} -TERRAINSLOPE {terrain_slope} -GROUND {out_ground_path}"
     os.system(cmd)
 
 
@@ -117,7 +109,7 @@ def remove_noise(src_array: np.ndarray, no_data_value: float = -99999.0):
     return src_array
 
 
-def save_array_as_geotif(array, source_tif_path, out_path):
+def array_to_geotif(array, source_tif_path, out_path):
     """
     Generates a geotiff raster from the input numpy array (height * width * depth)
     Input:
@@ -280,11 +272,6 @@ def get_raster_resolution(raster_path: str) -> Tuple[float, float]:
         return x_res, y_res
 
 
-def get_res_and_downsample(dsm_path, temp_dir):
-    # check DSM resolution. Downsample if DSM is of very high resolution to save processing time.
-    pass
-
-
 def get_updated_params(
     x_res: float, y_res: float, dsm_crs: int, search_radius: int, smoothen_radius: int
 ) -> Tuple[int, int]:
@@ -400,7 +387,7 @@ def main(
         temp_dir, dsm_name + "_ground_bigger_holes.tif"
     )
     ground_array = expand_holes_in_array(ground_array, no_data_value=no_data_value)
-    save_array_as_geotif(ground_array, diff_raster_path, bigger_holes_ground_path)
+    array_to_geotif(ground_array, diff_raster_path, bigger_holes_ground_path)
     # STEP 8: Close gaps in the DTM
     dtm_path = os.path.join(temp_dir, dsm_name + "_dtm.tif")
     close_gaps(bigger_holes_ground_path, dtm_path)

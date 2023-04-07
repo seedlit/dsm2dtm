@@ -60,3 +60,4 @@ DSM was derived from [this point cloud data](https://cloud.rockrobotic.com/share
  - Reduce I/O by passing rasterio object instead of raster path
  - Add exception handling
  - use [SAGA python API](https://saga-gis.sourceforge.io/saga_api_python/index.html) instead of command line ineterface (saga_cmd)
+ - upsample generated DTM if the source DSM was downsampled

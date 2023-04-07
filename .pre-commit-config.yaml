@@ -7,14 +7,14 @@ repos:
     # -   id: check-yaml
     -   id: check-added-large-files
 
-# -   repo: https://github.com/psf/black
-#     rev: 23.3.0
-#     hooks:
-#     -   id: black
-#         exclude: conda-recipe
+-   repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+    -   id: black
+        exclude: conda-recipe
 
-# -   repo: https://github.com/pycqa/isort
-#     rev: 5.12.0
-#     hooks:
-#       - id: isort
-#         args: ["--profile", "black"]
+-   repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]

@@ -49,7 +49,7 @@ def test_get_downsampling_factor(x_res, y_res, crs, expected_result):
     assert downsampling_factor == expected_result
 
 
-def test_downsample_raster():
+def test_resample_raster():
     with tempfile.TemporaryDirectory() as tmpdir:
         resampled_dsm_path = dsm2dtm.resample_raster(
             TEST_DSM1, f"{tmpdir}/downsampled_dsm.tif", 0.1
@@ -130,4 +130,35 @@ def test_expand_holes_in_array():
 
 
 def test_extract_dtm():
+    # todo: local workaround
+    # export PATH=$PATH:/Applications/SAGA.app/Contents/MacOS
+    # export PATH=$PATH:.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_ground_path = f"{tmpdir}/ground.tif"
+        dsm2dtm.extract_dtm(
+            dsm_path=TEST_DSM1,
+            out_ground_path=out_ground_path,
+            radius=40,
+            terrain_slope=5,
+        )
+        assert Path(out_ground_path).is_file()
+        with rio.open(out_ground_path) as ground:
+            ground_array = ground.read()
+            assert ground_array.shape == (2866, 3152)
+            assert float(ground_array.mean()) == 25
+
+
+def test_array_to_geotiff():
+    pass
+
+
+def test_close_gaps():
+    pass
+
+
+def test_smoothen_raster():
+    pass
+
+
+def test_main():
     pass
