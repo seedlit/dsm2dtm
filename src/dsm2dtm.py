@@ -109,45 +109,55 @@ def remove_noise(src_array: np.ndarray, no_data_value: float = -99999.0):
     return src_array
 
 
-def array_to_geotif(array, source_tif_path, out_path):
+def array_to_geotif(array: np.ndarray, ref_tif_path: str, out_path: str):
     """
-    Generates a geotiff raster from the input numpy array (height * width * depth)
-    Input:
-        array: {numpy array} numpy array to be saved as geotiff
-        source_tif_path: {string} path to the geotiff from which projection and geotransformation information will be extracted.
-    Output:
-        out_path: {string} path to the generated Geotiff raster
+    Generates a geotiff raster from the input numpy array.
+    
+    Arguments:
+        array: Numpy array to be saved as geotiff
+        ref_tif_path: Path to the reference geotiff from which projection and geotransformation information will be extracted.
+        out_path: Path where the new geotiff will be generated.
     """
-    pass
+    with rio.Env():
+        with rio.open(ref_tif_path) as src:   
+            profile = src.profile
+            # scale image transform
+            transform = src.transform * src.transform.scale(
+                (src.width / array.shape[-1]), (src.height / array.shape[-2])
+            )
+            profile.update(
+                transform=transform,
+                width=array.shape[-1],
+                height=array.shape[-2])
+            with rio.open(out_path, "w", **profile) as dst:
+                dst.write(array, 1)
 
 
-def close_gaps(in_path, out_path, threshold=0.1):
+
+def close_gaps(in_path: str, out_path: str, threshold: float=0.1):
     """
-    Interpolates the holes (no data value) in the input raster.
-    Input:
-        in_path: {string} path to the input raster with holes
-        threshold: {float} Tension Threshold
-    Output:
-        out_path: {string} path to the generated raster with closed holes.
+    Generates a new raster with interpolated holes (no data value) in the source raster.
+    
+    Arguments:
+        in_path: Path to the input raster with holes.
+        out_path: Path where the raster with closed holes will be generated.
+        threshold: Tension Threshold (saga cmd paramater)
     """
-    cmd = "saga_cmd grid_tools 7 -INPUT {} -THRESHOLD {} -RESULT {}".format(
-        in_path, threshold, out_path
-    )
+    #TODO: check if the source raster can be overwritten instead of generating a new raster
+    cmd = f"saga_cmd grid_tools 7 -INPUT {in_path} -THRESHOLD {threshold} -RESULT {out_path}"
     os.system(cmd)
 
 
-def smoothen_raster(in_path, out_path, radius=2):
+def smoothen_raster(in_path: str, out_path: str, radius: int=2):
     """
-    Applies gaussian filter to the input raster.
-    Input:
-        in_path: {string} path to the input raster
-        radius: {int} kernel radius to be used for smoothing
-    Output:
-        out_path: {string} path to the generated smoothened raster
+    Generates a new raster with Gaussian filter applied to the source raster.
+    
+    Arguments:
+        in_path: Path to the input raster.
+        out_path: Path where the smoothened raster will be generated.
+        radius: Kernel radius to be used for smoothing.
     """
-    cmd = "saga_cmd grid_filter 1 -INPUT {} -RESULT {} -KERNEL_TYPE 0 -KERNEL_RADIUS {}".format(
-        in_path, out_path, radius
-    )
+    cmd = f"saga_cmd grid_filter 1 -INPUT {in_path} -RESULT {out_path} -KERNEL_TYPE 0 -KERNEL_RADIUS {radius}"
     os.system(cmd)
 
 
@@ -357,11 +367,9 @@ def main(
     avg_slp = slope_array.mean().item()
     # STEP 2: Split DSM into ground and non-ground surface rasters
     ground_dem_path = os.path.join(temp_dir, dsm_name + "_ground.tif")
-    non_ground_dem_path = os.path.join(temp_dir, dsm_name + "_non_ground.tif")
     extract_dtm(
         dsm_path,
         ground_dem_path,
-        non_ground_dem_path,
         search_radius,
         avg_slp,
     )

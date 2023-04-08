@@ -130,7 +130,7 @@ def test_expand_holes_in_array():
 
 
 def test_extract_dtm():
-    # todo: local workaround
+    # TODO: local workaround
     # export PATH=$PATH:/Applications/SAGA.app/Contents/MacOS
     # export PATH=$PATH:.
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -138,26 +138,57 @@ def test_extract_dtm():
         dsm2dtm.extract_dtm(
             dsm_path=TEST_DSM1,
             out_ground_path=out_ground_path,
-            radius=40,
+            radius=5,
             terrain_slope=5,
         )
         assert Path(out_ground_path).is_file()
         with rio.open(out_ground_path) as ground:
             ground_array = ground.read()
-            assert ground_array.shape == (2866, 3152)
-            assert float(ground_array.mean()) == 25
+            assert ground_array.shape == (1, 2866, 3159)
+            assert float(ground_array.mean()) == -21370.341796875
 
 
 def test_array_to_geotiff():
-    pass
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with rio.open(TEST_DSM1) as src:
+            src_array = np.squeeze(src.read())
+            out_path = f"{tmpdir}/new_tif.tif"
+            dsm2dtm.array_to_geotif(
+                array=src_array, ref_tif_path=TEST_DSM1, out_path=out_path
+            )
+            assert Path(out_path).is_file()
+            with rio.open(out_path) as out:
+                out_array = out.read()
+                assert out_array.shape == (1, 2866, 3159)
+                assert float(out_array.mean()) == 63.69542694091797
 
 
 def test_close_gaps():
-    pass
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_path = f"{tmpdir}/closed.tif"
+        dsm2dtm.close_gaps(
+            in_path=TEST_DSM1,
+            out_path=out_path,
+        )
+        assert Path(out_path).is_file()
+        with rio.open(out_path) as out:
+            out_array = out.read()
+            assert out_array.shape == (1, 2866, 3159)
+            assert float(out_array.mean()) == 63.69542694091797
 
 
 def test_smoothen_raster():
-    pass
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_path = f"{tmpdir}/smoothened.tif"
+        dsm2dtm.smoothen_raster(
+            in_path=TEST_DSM1,
+            out_path=out_path,
+        )
+        assert Path(out_path).is_file()
+        with rio.open(out_path) as out:
+            out_array = out.read()
+            assert out_array.shape == (1, 2866, 3159)
+            assert float(out_array.mean()) == 63.69527053833008
 
 
 def test_main():
