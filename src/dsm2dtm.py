@@ -7,6 +7,7 @@ Author: Naman Jain
 
 import argparse
 import os
+import tempfile
 from typing import Tuple
 
 import numpy as np
@@ -112,46 +113,44 @@ def remove_noise(src_array: np.ndarray, no_data_value: float = -99999.0):
 def array_to_geotif(array: np.ndarray, ref_tif_path: str, out_path: str):
     """
     Generates a geotiff raster from the input numpy array.
-    
+
     Arguments:
         array: Numpy array to be saved as geotiff
         ref_tif_path: Path to the reference geotiff from which projection and geotransformation information will be extracted.
         out_path: Path where the new geotiff will be generated.
     """
     with rio.Env():
-        with rio.open(ref_tif_path) as src:   
+        with rio.open(ref_tif_path) as src:
             profile = src.profile
             # scale image transform
             transform = src.transform * src.transform.scale(
                 (src.width / array.shape[-1]), (src.height / array.shape[-2])
             )
             profile.update(
-                transform=transform,
-                width=array.shape[-1],
-                height=array.shape[-2])
+                transform=transform, width=array.shape[-1], height=array.shape[-2]
+            )
             with rio.open(out_path, "w", **profile) as dst:
                 dst.write(array, 1)
 
 
-
-def close_gaps(in_path: str, out_path: str, threshold: float=0.1):
+def close_gaps(in_path: str, out_path: str, threshold: float = 0.1):
     """
     Generates a new raster with interpolated holes (no data value) in the source raster.
-    
+
     Arguments:
         in_path: Path to the input raster with holes.
         out_path: Path where the raster with closed holes will be generated.
         threshold: Tension Threshold (saga cmd paramater)
     """
-    #TODO: check if the source raster can be overwritten instead of generating a new raster
+    # TODO: check if the source raster can be overwritten instead of generating a new raster
     cmd = f"saga_cmd grid_tools 7 -INPUT {in_path} -THRESHOLD {threshold} -RESULT {out_path}"
     os.system(cmd)
 
 
-def smoothen_raster(in_path: str, out_path: str, radius: int=2):
+def smoothen_raster(in_path: str, out_path: str, radius: int = 2):
     """
     Generates a new raster with Gaussian filter applied to the source raster.
-    
+
     Arguments:
         in_path: Path to the input raster.
         out_path: Path where the smoothened raster will be generated.
@@ -350,56 +349,55 @@ def main(
 ):
     # master function that calls all other functions
     os.makedirs(out_dir, exist_ok=True)
-    temp_dir = os.path.join(out_dir, "temp_files")
-    os.makedirs(temp_dir, exist_ok=True)
-    x_res, y_res = get_raster_resolution(dsm_path)
-    dsm_crs = get_raster_crs(dsm_path)
-    downsampling_factor = get_downsampling_factor(x_res, y_res, dsm_crs)
-    dsm_path = resample_raster(dsm_path, temp_dir, downsampling_factor)
-    # get updated params wrt to DSM resolution
-    search_radius, smoothen_radius = get_updated_params(
-        x_res, y_res, dsm_crs, search_radius, smoothen_radius
-    )
-    # Generate DTM
-    # STEP 1: Generate slope raster from dsm to get average slope value
-    dsm_name = dsm_path.split("/")[-1].split(".")[0]
-    slope_array = generate_slope_array(dsm_path, no_data_value=no_data_value)
-    avg_slp = slope_array.mean().item()
-    # STEP 2: Split DSM into ground and non-ground surface rasters
-    ground_dem_path = os.path.join(temp_dir, dsm_name + "_ground.tif")
-    extract_dtm(
-        dsm_path,
-        ground_dem_path,
-        search_radius,
-        avg_slp,
-    )
-    # STEP 3: Applying Gaussian Filter on the generated ground raster (parameters: radius = 45, mode = Circle)
-    smoothened_ground_path = os.path.join(temp_dir, dsm_name + "_ground_smth.tif")
-    smoothen_raster(ground_dem_path, smoothened_ground_path, smoothen_radius)
-    # STEP 4: Generating a difference raster (ground DEM - smoothened ground DEM)
-    diff_raster_path = os.path.join(temp_dir, dsm_name + "_ground_diff.tif")
-    diff_raster_path = subtract_rasters(
-        ground_dem_path, smoothened_ground_path, diff_raster_path
-    )
-    # STEP 5: Thresholding on the difference raster to replace values in Ground DEM by no-data values (threshold = 0.98)
-    ground_array = replace_values(
-        ground_dem_path,
-        diff_raster_path,
-        no_data_value=no_data_value,
-        threshold=dsm_replace_threshold_val,
-    )
-    # STEP 6: Removing noisy spikes from the generated DTM
-    ground_array = remove_noise(ground_array, no_data_value=no_data_value)
-    # STEP 7: Expanding holes in the thresholded ground raster
-    bigger_holes_ground_path = os.path.join(
-        temp_dir, dsm_name + "_ground_bigger_holes.tif"
-    )
-    ground_array = expand_holes_in_array(ground_array, no_data_value=no_data_value)
-    array_to_geotif(ground_array, diff_raster_path, bigger_holes_ground_path)
-    # STEP 8: Close gaps in the DTM
-    dtm_path = os.path.join(temp_dir, dsm_name + "_dtm.tif")
-    close_gaps(bigger_holes_ground_path, dtm_path)
-    return dtm_path
+    with tempfile.TemporaryDirectory() as temp_dir:
+        x_res, y_res = get_raster_resolution(dsm_path)
+        dsm_crs = get_raster_crs(dsm_path)
+        downsampling_factor = get_downsampling_factor(x_res, y_res, dsm_crs)
+        resampled_dsm_path = f"{temp_dir}/resampled_dsm.tif"
+        dsm_path = resample_raster(dsm_path, resampled_dsm_path, downsampling_factor)
+        # get updated params wrt to DSM resolution
+        search_radius, smoothen_radius = get_updated_params(
+            x_res, y_res, dsm_crs, search_radius, smoothen_radius
+        )
+        # Generate DTM
+        # STEP 1: Generate slope raster from dsm to get average slope value
+        slope_array = generate_slope_array(dsm_path, no_data_value=no_data_value)
+        avg_slp = slope_array.mean().item()
+        # STEP 2: Split DSM into ground and non-ground surface rasters
+        ground_dem_path = os.path.join(temp_dir, "ground.tif")
+        extract_dtm(
+            dsm_path,
+            ground_dem_path,
+            search_radius,
+            avg_slp,
+        )
+        # STEP 3: Applying Gaussian Filter on the generated ground raster (parameters: radius = 45, mode = Circle)
+        smoothened_ground_path = os.path.join(temp_dir, "ground_smth.tif")
+        smoothen_raster(ground_dem_path, smoothened_ground_path, smoothen_radius)
+        # STEP 4: Generating a difference raster (ground DEM - smoothened ground DEM)
+        diff_raster_path = os.path.join(temp_dir, "ground_diff.tif")
+        diff_raster_path = subtract_rasters(
+            ground_dem_path, smoothened_ground_path, diff_raster_path
+        )
+        # STEP 5: Thresholding on the difference raster to replace values in Ground DEM by no-data values (threshold = 0.98)
+        ground_array = replace_values(
+            ground_dem_path,
+            diff_raster_path,
+            no_data_value=no_data_value,
+            threshold=dsm_replace_threshold_val,
+        )
+        # STEP 6: Removing noisy spikes from the generated DTM
+        ground_array = remove_noise(ground_array, no_data_value=no_data_value)
+        # STEP 7: Expanding holes in the thresholded ground raster
+        bigger_holes_ground_path = os.path.join(
+            temp_dir, "ground_bigger_holes.tif"
+        )
+        ground_array = expand_holes_in_array(ground_array, no_data_value=no_data_value)
+        array_to_geotif(ground_array, diff_raster_path, bigger_holes_ground_path)
+        # STEP 8: Close gaps in the DTM
+        dtm_path = os.path.join(out_dir, "dtm.tif")
+        close_gaps(bigger_holes_ground_path, dtm_path)
+        return dtm_path
 
 
 # -----------------------------------------------------------------------------------------------------

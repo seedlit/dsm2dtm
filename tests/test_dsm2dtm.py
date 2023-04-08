@@ -192,4 +192,10 @@ def test_smoothen_raster():
 
 
 def test_main():
-    pass
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dtm_path = dsm2dtm.main(TEST_DSM1, tmpdir, search_radius=5, smoothen_radius=5)
+        assert Path(dtm_path).is_file()
+        with rio.open(dtm_path) as dtm:
+            dtm_array = dtm.read()
+            assert dtm_array.shape == (1, 2866, 3159)
+            assert float(dtm_array.mean()) == 89
