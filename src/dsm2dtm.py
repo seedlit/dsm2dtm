@@ -18,62 +18,95 @@ from rasterio.enums import Resampling
 from src.constants import NOISE_DEVIATION_FACTOR, TARGET_RES_UTM, TARGET_RES_WGS
 
 
-def resample_raster(
-    src_raster_path: str, resampled_raster_path: str, resampling_factor: float
-) -> str:
-    """
-    Generates a new resampled raster.
+class RasterResampler:
+    def resample_raster(
+        self, src_raster_path: str, resampled_raster_path: str, resampling_factor: float
+    ) -> str:
+        """
+        Generates a new resampled raster.
 
-    Parameters:
-        src_raster_path: Path to the source raster.
-        resampled_raster_path: Path where the resampled raster will be generated.
-        resampling_factor: Factor by which the source raster will be resampled.
+        Parameters:
+            src_raster_path: Path to the source raster.
+            resampled_raster_path: Path where the resampled raster will be generated.
+            resampling_factor: Factor by which the source raster will be resampled.
 
-    Returns:
-        resampled_raster_path: Path where the resampled raster will be generated.
-    """
-    with rio.open(src_raster_path) as raster:
-        # resample data to target shape
-        data = raster.read(
-            out_shape=(
-                raster.count,
-                int(raster.height * resampling_factor),
-                int(raster.width * resampling_factor),
-            ),
-            resampling=Resampling.bilinear,
-        )
-        # scale image transform
-        transform = raster.transform * raster.transform.scale(
-            (raster.width / data.shape[-1]), (raster.height / data.shape[-2])
-        )
-        profile = raster.profile
-        profile.update(
-            transform=transform,
-            height=int(raster.height * resampling_factor),
-            width=(raster.width * resampling_factor),
-        )
-        with rio.open(resampled_raster_path, "w", **profile) as dst:
-            dst.write(data)
-        return resampled_raster_path
+        Returns:
+            resampled_raster_path: Path where the resampled raster will be generated.
+        """
+        with rio.open(src_raster_path) as raster:
+            # resample data to target shape
+            data = raster.read(
+                out_shape=(
+                    raster.count,
+                    int(raster.height * resampling_factor),
+                    int(raster.width * resampling_factor),
+                ),
+                resampling=Resampling.bilinear,
+            )
+            # scale image transform
+            transform = raster.transform * raster.transform.scale(
+                (raster.width / data.shape[-1]), (raster.height / data.shape[-2])
+            )
+            profile = raster.profile
+            profile.update(
+                transform=transform,
+                height=int(raster.height * resampling_factor),
+                width=(raster.width * resampling_factor),
+            )
+            with rio.open(resampled_raster_path, "w", **profile) as dst:
+                dst.write(data)
+            return resampled_raster_path
 
 
-def generate_slope_array(src_raster_path: str, no_data_value: int = -99999.0):
-    """
-    Generates slope array from the input DSM raster.
+class TerrainAttributeCalculator:
+    def get_raster_resolution(self, raster_path: str) -> Tuple[float, float]:
+        """
+        Returns the absolute values of x and y resolution of the raster.
 
-    Parameters:
-        src_raster_path: Path to the source DSM.
-        no_data_value: No data value in the source DSM.
-                        Default value is -99999.0
+        Paramteres:
+            raster_path: Path to the source raster.
 
-    Returns:
-        slope_array: Array representing the slope values for the source DSM.
-    """
-    with rio.open(src_raster_path) as raster:
-        array = np.squeeze(raster.read())
-        array = rd.rdarray(array, no_data=no_data_value)
-        slope_array = rd.TerrainAttribute(array, attrib="slope_riserun")
-        return slope_array
+        Returns:
+            x_res: Resolution of the cell in X direction.
+            y_res: Resolution of the cell in Y direction.
+        """
+        with rio.open(raster_path) as raster:
+            x_res = raster.transform[0]
+            y_res = -(raster.transform[4])
+            # taking a negative for y_res as we are interested in the abslute value
+            return x_res, y_res
+
+    def get_raster_crs(self, raster_path: str) -> int:
+        """
+        Returns the CRS (Coordinate Reference System) of the source raster
+
+        Parameters:
+            raster_path: Path to the source raster.
+
+        Returns:
+            crs: EPSG value of the Coordinate Reference System.
+        """
+        with rio.open(raster_path) as raster:
+            crs = raster.crs.to_epsg()
+            return crs
+
+    def generate_slope_array(self, src_raster_path: str, no_data_value: int = -99999.0):
+        """
+        Generates slope array from the input DSM raster.
+
+        Parameters:
+            src_raster_path: Path to the source DSM.
+            no_data_value: No data value in the source DSM.
+                            Default value is -99999.0
+
+        Returns:
+            slope_array: Array representing the slope values for the source DSM.
+        """
+        with rio.open(src_raster_path) as raster:
+            array = np.squeeze(raster.read())
+            array = rd.rdarray(array, no_data=no_data_value)
+            slope_array = rd.TerrainAttribute(array, attrib="slope_riserun")
+            return slope_array
 
 
 def extract_dtm(dsm_path: str, out_ground_path: str, radius: int, terrain_slope: float):
@@ -90,22 +123,86 @@ def extract_dtm(dsm_path: str, out_ground_path: str, radius: int, terrain_slope:
     os.system(cmd)
 
 
-def remove_noise(src_array: np.ndarray, no_data_value: float = -99999.0):
-    """
-    Replaces noise (high elevation data points like roofs, etc.) from the ground DEM array, with no_data_value.
+class TerrainProcessing:
+    def remove_noise(self, src_array: np.ndarray, no_data_value: float = -99999.0):
+        """
+        Replaces noise (high elevation data points like roofs, etc.) from the ground DEM array, with no_data_value.
 
-    Arguments:
-        src_array: Numpy array representing ground DEM
-        no_data_value: Float value that will be treated as no-data-value by GIS softwares (like QGIS).
+        Arguments:
+            src_array: Numpy array representing ground DEM
+            no_data_value: Float value that will be treated as no-data-value by GIS softwares (like QGIS).
 
-    Returns:
-        Numpy array with replaced noise values.
-    """
-    std = src_array[src_array != no_data_value].std()
-    mean = src_array[src_array != no_data_value].mean()
-    threshold_value = mean + NOISE_DEVIATION_FACTOR * std
-    src_array[src_array >= threshold_value] = no_data_value
-    return src_array
+        Returns:
+            Numpy array with replaced noise values.
+        """
+        std = src_array[src_array != no_data_value].std()
+        mean = src_array[src_array != no_data_value].mean()
+        threshold_value = mean + NOISE_DEVIATION_FACTOR * std
+        src_array[src_array >= threshold_value] = no_data_value
+        return src_array
+
+    def close_gaps(self, in_path: str, out_path: str, threshold: float = 0.1):
+        """
+        Generates a new raster with interpolated holes (no data value) in the source raster.
+
+        Arguments:
+            in_path: Path to the input raster with holes.
+            out_path: Path where the raster with closed holes will be generated.
+            threshold: Tension Threshold (saga cmd paramater)
+        """
+        # TODO: check if the source raster can be overwritten instead of generating a new raster
+        cmd = f"saga_cmd grid_tools 7 -INPUT {in_path} -THRESHOLD {threshold} -RESULT {out_path}"
+        os.system(cmd)
+
+    def smoothen_raster(self, in_path: str, out_path: str, radius: int = 2):
+        """
+        Generates a new raster with Gaussian filter applied to the source raster.
+
+        Arguments:
+            in_path: Path to the input raster.
+            out_path: Path where the smoothened raster will be generated.
+            radius: Kernel radius to be used for smoothing.
+        """
+        cmd = f"saga_cmd grid_filter 1 -INPUT {in_path} -RESULT {out_path} -KERNEL_TYPE 0 -KERNEL_RADIUS {radius}"
+        os.system(cmd)
+
+    def expand_holes_in_array(
+        self,
+        src_array: np.ndarray,
+        search_window: int = 7,
+        no_data_value: float = -99999.0,
+        threshold: float = 50,
+    ):
+        """
+        Expands holes (cells with no_data_value) in the input array.
+
+        Arguments:
+            src_array: Numpy arrray representing ground DEM.
+            search_window: kernel size to be used as window
+            threshold: threshold on percentage of cells with no_data_value
+
+        Returns:
+            Numpy array with expanded holes.
+        """
+        # TODO: refactor
+        height, width = src_array.shape[0], src_array.shape[1]
+        for i in range(int((search_window - 1) / 2), width, 1):
+            for j in range(int((search_window - 1) / 2), height, 1):
+                window = src_array[
+                    int(i - (search_window - 1) / 2) : int(i - (search_window - 1) / 2)
+                    + search_window,
+                    int(j - (search_window - 1) / 2) : int(j - (search_window - 1) / 2)
+                    + search_window,
+                ]
+                if (
+                    np.count_nonzero(window == no_data_value)
+                    >= (threshold * search_window**2) / 100
+                ):
+                    try:
+                        src_array[i, j] = no_data_value
+                    except:
+                        pass
+        return src_array
 
 
 def array_to_geotif(array: np.ndarray, ref_tif_path: str, out_path: str):
@@ -129,33 +226,6 @@ def array_to_geotif(array: np.ndarray, ref_tif_path: str, out_path: str):
             )
             with rio.open(out_path, "w", **profile) as dst:
                 dst.write(array, 1)
-
-
-def close_gaps(in_path: str, out_path: str, threshold: float = 0.1):
-    """
-    Generates a new raster with interpolated holes (no data value) in the source raster.
-
-    Arguments:
-        in_path: Path to the input raster with holes.
-        out_path: Path where the raster with closed holes will be generated.
-        threshold: Tension Threshold (saga cmd paramater)
-    """
-    # TODO: check if the source raster can be overwritten instead of generating a new raster
-    cmd = f"saga_cmd grid_tools 7 -INPUT {in_path} -THRESHOLD {threshold} -RESULT {out_path}"
-    os.system(cmd)
-
-
-def smoothen_raster(in_path: str, out_path: str, radius: int = 2):
-    """
-    Generates a new raster with Gaussian filter applied to the source raster.
-
-    Arguments:
-        in_path: Path to the input raster.
-        out_path: Path where the smoothened raster will be generated.
-        radius: Kernel radius to be used for smoothing.
-    """
-    cmd = f"saga_cmd grid_filter 1 -INPUT {in_path} -RESULT {out_path} -KERNEL_TYPE 0 -KERNEL_RADIUS {radius}"
-    os.system(cmd)
 
 
 def subtract_rasters(rasterA_path: str, rasterB_path: str, out_path: str) -> str:
@@ -206,77 +276,6 @@ def replace_values(
         np.place(array_a, array_b >= threshold, [no_data_value])
         updated_array = np.squeeze(array_a)
         return updated_array
-
-
-def expand_holes_in_array(
-    src_array: np.ndarray,
-    search_window: int = 7,
-    no_data_value: float = -99999.0,
-    threshold: float = 50,
-):
-    """
-    Expands holes (cells with no_data_value) in the input array.
-
-    Arguments:
-        src_array: Numpy arrray representing ground DEM.
-        search_window: kernel size to be used as window
-        threshold: threshold on percentage of cells with no_data_value
-
-    Returns:
-        Numpy array with expanded holes.
-    """
-    # TODO: refactor
-    height, width = src_array.shape[0], src_array.shape[1]
-    for i in range(int((search_window - 1) / 2), width, 1):
-        for j in range(int((search_window - 1) / 2), height, 1):
-            window = src_array[
-                int(i - (search_window - 1) / 2) : int(i - (search_window - 1) / 2)
-                + search_window,
-                int(j - (search_window - 1) / 2) : int(j - (search_window - 1) / 2)
-                + search_window,
-            ]
-            if (
-                np.count_nonzero(window == no_data_value)
-                >= (threshold * search_window**2) / 100
-            ):
-                try:
-                    src_array[i, j] = no_data_value
-                except:
-                    pass
-    return src_array
-
-
-def get_raster_crs(raster_path: str) -> int:
-    """
-    Returns the CRS (Coordinate Reference System) of the source raster
-
-    Parameters:
-        raster_path: Path to the source raster.
-
-    Returns:
-        crs: EPSG value of the Coordinate Reference System.
-    """
-    with rio.open(raster_path) as raster:
-        crs = raster.crs.to_epsg()
-        return crs
-
-
-def get_raster_resolution(raster_path: str) -> Tuple[float, float]:
-    """
-    Returns the absolute values of x and y resolution of the raster.
-
-    Paramteres:
-        raster_path: Path to the source raster.
-
-    Returns:
-        x_res: Resolution of the cell in X direction.
-        y_res: Resolution of the cell in Y direction.
-    """
-    with rio.open(raster_path) as raster:
-        x_res = raster.transform[0]
-        y_res = -(raster.transform[4])
-        # taking a negative for y_res as we are interested in the abslute value
-        return x_res, y_res
 
 
 def get_updated_params(
