@@ -52,11 +52,9 @@ def resample_raster(
             height=int(raster.height * resampling_factor),
             width=(raster.width * resampling_factor),
         )
-        # import ipdb
-        # ipdb.set_trace()
         with rio.open(resampled_raster_path, "w", **profile) as dst:
             dst.write(data)
-    return resampled_raster_path
+        return resampled_raster_path
 
 
 def generate_slope_array(src_raster_path: str, no_data_value: int = -99999.0):
@@ -335,7 +333,7 @@ def get_downsampling_factor(x_res: float, y_res: float, raster_crs: int) -> floa
     else:
         target_res = TARGET_RES_WGS
     if x_res < target_res or y_res < target_res:
-        downsampling_factor = target_res / min(x_res, y_res)
+        downsampling_factor = round((min(x_res, y_res) / target_res), 2)
     return downsampling_factor
 
 
@@ -389,9 +387,7 @@ def main(
         # STEP 6: Removing noisy spikes from the generated DTM
         ground_array = remove_noise(ground_array, no_data_value=no_data_value)
         # STEP 7: Expanding holes in the thresholded ground raster
-        bigger_holes_ground_path = os.path.join(
-            temp_dir, "ground_bigger_holes.tif"
-        )
+        bigger_holes_ground_path = os.path.join(temp_dir, "ground_bigger_holes.tif")
         ground_array = expand_holes_in_array(ground_array, no_data_value=no_data_value)
         array_to_geotif(ground_array, diff_raster_path, bigger_holes_ground_path)
         # STEP 8: Close gaps in the DTM

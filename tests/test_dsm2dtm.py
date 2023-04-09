@@ -8,6 +8,7 @@ import rasterio as rio
 from src import dsm2dtm
 
 TEST_DSM1 = "data/sample_dsm.tif"
+# TEST_DSM1 = "/Users/naman.jain/Desktop/personal/side_projects/temp/temp/downsampled_dsm.tif"
 TEST_DSM2 = "data/sample_hiilside_dsm_30cm.tif"
 # TODO: add tests for .sdat files
 
@@ -40,7 +41,7 @@ def test_get_raster_crs(test_dsm, expected_epsg):
 @pytest.mark.parametrize(
     "x_res, y_res, crs, expected_result",
     [
-        (2.513751187083714e-07, 2.51398813677825e-07, 4326, 10.000989807255246),
+        (2.513751187083714e-07, 2.51398813677825e-07, 4326, 0.1),
         (0.30014781965999754, 0.29999999999989213, 32610, 1),
     ],
 )
@@ -192,10 +193,11 @@ def test_smoothen_raster():
 
 
 def test_main():
+    # TODO: run memeory profiler
     with tempfile.TemporaryDirectory() as tmpdir:
         dtm_path = dsm2dtm.main(TEST_DSM1, tmpdir, search_radius=5, smoothen_radius=5)
         assert Path(dtm_path).is_file()
         with rio.open(dtm_path) as dtm:
             dtm_array = dtm.read()
-            assert dtm_array.shape == (1, 2866, 3159)
-            assert float(dtm_array.mean()) == 89
+            assert dtm_array.shape == (1, 286, 315)
+            assert float(dtm_array.mean()) == 59.982666015625
