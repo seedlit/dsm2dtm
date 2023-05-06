@@ -61,3 +61,4 @@ DSM was derived from [this point cloud data](https://cloud.rockrobotic.com/share
  - Add exception handling
  - use [SAGA python API](https://saga-gis.sourceforge.io/saga_api_python/index.html) instead of command line ineterface (saga_cmd)
  - upsample generated DTM if the source DSM was downsampled
+ - setup docker-compose (and maybe expose as FastAPI app?)
