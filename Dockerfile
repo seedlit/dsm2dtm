@@ -26,3 +26,4 @@ COPY ./tests ./tests
 COPY ./data ./data
 
 CMD [ "pytest"]
+# self note: use `docker run <image_name>` to run the image
