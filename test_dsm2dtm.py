@@ -40,7 +40,7 @@ def test_generate_slope_raster(temp_dir, dsm_ds_path):
     dsm_slp_path = os.path.join(temp_dir, dsm_name + "_slp.tif")
     dsm2dtm.generate_slope_raster(dsm_ds_path, dsm_slp_path)
     assert os.path.isfile(dsm_slp_path)
-    assert int(dsm2dtm.get_mean(dsm_slp_path)) == 13
+    assert int(dsm2dtm.get_mean(dsm_slp_path)) == 89
 
 def test_extract_dtm(temp_dir, dsm_ds_path):
     dsm_name = DSM_PATH.split("/")[-1].split(".")[0]

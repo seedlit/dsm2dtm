@@ -2,7 +2,6 @@
 dsm2dtm - Generate DTM (Digital Terrain Model) from DSM (Digital Surface Model)
 Author: Naman Jain
         naman.jain@btech2015.iitgn.ac.in
-        www.namanji.wixsite.com/naman/
 """
 
 import os
@@ -38,7 +37,7 @@ def downsample_raster(in_path, out_path, downsampling_factor):
             # Read and write block by block
             # This is a simplified block-wise approach, for complex resampling
             # more sophisticated iteration over blocks might be needed.
-            for ji, window in dst.block_windows:
+            for ji, window in dst.block_windows(1):
                 # Read data from source window
                 # Calculate the window in the source raster that corresponds to the output block
                 src_window = rasterio.windows.get_parent(window, src.transform, dst.transform)
@@ -70,7 +69,7 @@ def upsample_raster(in_path, out_path, target_height, target_width):
         )
 
         with rasterio.open(out_path, 'w', **profile) as dst:
-            for ji, window in dst.block_windows:
+            for ji, window in dst.block_windows(1):
                 # Read data from source that covers the output window,
                 # resampling it to the output window's size
                 data = src.read(
@@ -92,6 +91,7 @@ def generate_slope_raster(in_path, out_path):
     with rasterio.open(in_path) as src:
         profile = src.profile
         nodata = src.nodata
+        res_x, res_y = src.res # Get resolution (assuming same units as Z, or degrees)
         
         # Update profile for output slope raster
         profile.update(
@@ -107,7 +107,7 @@ def generate_slope_raster(in_path, out_path):
             # Define an overlap for gradient calculation (e.g., 1 pixel on each side)
             overlap = 1
             
-            for ji, window in dst.block_windows:
+            for ji, window in dst.block_windows(1):
                 # Calculate a larger window for reading from source to handle overlap
                 read_window = rasterio.windows.union(
                     src.window(*src.window_bounds(window)), # window_bounds returns (left, bottom, right, top)
@@ -133,7 +133,10 @@ def generate_slope_raster(in_path, out_path):
                     dem_block_masked = dem_block
 
                 # Calculate gradient (slope) for the block
-                grad_y, grad_x = np.gradient(dem_block_masked)
+                # Dividing by resolution to get gradient in correct units (dZ/dX, dZ/dY)
+                # Note: np.gradient returns (gradient_axis_0, gradient_axis_1) -> (dy, dx)
+                grad_y, grad_x = np.gradient(dem_block_masked, res_y, res_x)
+                
                 slope_radians = np.arctan(np.sqrt(grad_x**2 + grad_y**2))
                 slope_degrees = np.degrees(slope_radians)
 
@@ -199,7 +202,7 @@ def get_mean(raster_path, ignore_value=-9999.0):
 def extract_dtm(dsm_path, ground_dem_path, non_ground_dem_path, radius, terrain_slope):
     """
     Generates a ground DEM and non-ground DEM raster from the input DSM raster
-    using morphological operations.
+    using morphological operations block by block.
     Input:
         dsm_path: {string} path to the DSM raster
         radius: {int} Search radius of kernel in cells (used for morphological filter).
@@ -209,43 +212,76 @@ def extract_dtm(dsm_path, ground_dem_path, non_ground_dem_path, radius, terrain_
         non_ground_dem_path: {string} path to the generated non-ground DEM (GeoTIFF) raster
     """
     with rasterio.open(dsm_path) as src:
-        dsm_array = src.read(1)
         profile = src.profile
         nodata = src.nodata
+        
+        # Update profile for output rasters
+        profile.update(dtype=src.dtype, count=1, driver='GTiff') # Maintain original dtype
 
-    # Handle nodata values by filling them temporarily for morphological operations
-    # and then restoring/masking them. Using a very low value for nodata for opening.
-    if nodata is not None:
-        fill_value = np.min(dsm_array[dsm_array != nodata]) if np.any(dsm_array != nodata) else -99999.0
-        dsm_filled = np.where(dsm_array == nodata, fill_value, dsm_array)
-    else:
-        dsm_filled = dsm_array
+        # Create overlapping structure element once
+        struct_element = np.ones((2 * radius + 1, 2 * radius + 1))
 
-    # Apply morphological opening to estimate the DTM (ground surface)
-    # The 'radius' parameter can be mapped to the size of the structuring element.
-    # Using a circular structuring element of given radius
-    struct_element = np.ones((2 * radius + 1, 2 * radius + 1))
-    ground_array = grey_opening(dsm_filled, structure=struct_element)
+        with rasterio.open(ground_dem_path, 'w', **profile) as dst_ground, \
+             rasterio.open(non_ground_dem_path, 'w', **profile) as dst_non_ground:
+            
+            overlap = radius # Overlap must cover the kernel radius
+            
+            for ji, window in dst_ground.block_windows(1):
+                # Calculate read window with padding
+                read_window = rasterio.windows.union(
+                    src.window(*src.window_bounds(window)),
+                    window
+                )
+                read_window = rasterio.windows.Window(
+                    window.col_off - overlap,
+                    window.row_off - overlap,
+                    window.width + 2 * overlap,
+                    window.height + 2 * overlap
+                )
+                # Clip to dataset bounds
+                read_window = read_window.intersection(rasterio.windows.Window(0, 0, src.width, src.height))
 
-    # Restore nodata values in the ground_array
-    if nodata is not None:
-        ground_array[dsm_array == nodata] = nodata
-    
-    # Calculate non-ground (buildings, vegetation) by subtracting DTM from DSM
-    non_ground_array = dsm_array - ground_array
-    if nodata is not None:
-        non_ground_array[dsm_array == nodata] = nodata
+                # Read data
+                dsm_block = src.read(1, window=read_window)
 
-    # Update profile for output GeoTIFFs
-    profile.update(dtype=dsm_array.dtype, count=1, nodata=nodata, driver='GTiff')
+                # Handle nodata
+                if nodata is not None:
+                    # Fill nodata with a very low value for opening (erosion then dilation)
+                    # Ideally, should be handled more gracefully, but for opening, 
+                    # minimum value is safe if it's below any valid data.
+                    valid_mask = (dsm_block != nodata)
+                    if np.any(valid_mask):
+                        fill_value = np.min(dsm_block[valid_mask])
+                    else:
+                        fill_value = -99999.0 # arbitrary low value if all nodata
+                        
+                    dsm_filled = np.where(dsm_block == nodata, fill_value, dsm_block)
+                else:
+                    dsm_filled = dsm_block
 
-    # Save ground DEM
-    with rasterio.open(ground_dem_path, 'w', **profile) as dst:
-        dst.write(ground_array, 1)
+                # Apply morphological opening
+                ground_block = grey_opening(dsm_filled, structure=struct_element)
 
-    # Save non-ground DEM
-    with rasterio.open(non_ground_dem_path, 'w', **profile) as dst:
-        dst.write(non_ground_array, 1)
+                # Restore nodata
+                if nodata is not None:
+                    ground_block[dsm_block == nodata] = nodata
+                
+                # Calculate non-ground
+                non_ground_block = dsm_block - ground_block
+                if nodata is not None:
+                    non_ground_block[dsm_block == nodata] = nodata
+
+                # Crop to output window
+                start_row = window.row_off - read_window.row_off
+                start_col = window.col_off - read_window.col_off
+                end_row = start_row + window.height
+                end_col = start_col + window.width
+
+                ground_output = ground_block[start_row:end_row, start_col:end_col]
+                non_ground_output = non_ground_block[start_row:end_row, start_col:end_col]
+
+                dst_ground.write(ground_output, 1, window=window)
+                dst_non_ground.write(non_ground_output, 1, window=window)
 
 
 def remove_noise(ground_dem_path, out_path, ignore_value=-99999.0):
