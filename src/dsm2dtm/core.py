@@ -571,6 +571,58 @@ def get_updated_params(dsm_path, search_radius, smoothen_radius):
     return search_radius, smoothen_radius
 
 
+def filter_ground_by_difference(ground_dem_path, smoothed_ground_path, out_path, no_data_value=None, threshold=0.98):
+    """
+    Combines subtraction and thresholding in a single pass.
+    1. Calculates diff = ground - smoothed
+    2. Replaces ground values with nodata where diff >= threshold
+    """
+    with rasterio.open(ground_dem_path) as src_ground, rasterio.open(smoothed_ground_path) as src_smoothed:
+        profile = src_ground.profile
+        nodata = src_ground.nodata if no_data_value is None else no_data_value
+        profile.update(nodata=nodata)
+
+        with rasterio.open(out_path, "w", **profile) as dst:
+            for ji, window in dst.block_windows(1):
+                ground_block = src_ground.read(1, window=window)
+                smoothed_block = src_smoothed.read(1, window=window)
+
+                # 1. Calculate Difference
+                diff_block = ground_block - smoothed_block
+
+                # Handle nodata in diff
+                # If either input is nodata, diff is invalid (or 0, or nodata)
+                # Ideally, if ground is nodata, result is nodata.
+                # If smoothed is nodata (edge case), diff might be invalid.
+
+                # 2. Apply Thresholding
+                # Where diff >= threshold, result is nodata, else result is ground
+
+                # We need to be careful with nodata values in the comparison
+                if nodata is not None:
+                    # Create a mask of valid pixels
+                    valid_mask = (ground_block != nodata) & (smoothed_block != src_smoothed.nodata)
+
+                    # Initialize result with ground values
+                    result_block = np.full_like(ground_block, nodata)
+
+                    # Only process valid pixels
+                    # Temporarily suppress warnings for invalid comparisons if any
+                    np.seterr(invalid="ignore")
+
+                    # Identify pixels to KEEP: valid AND diff < threshold
+                    # (Equivalent to: replace where diff >= threshold)
+                    keep_mask = valid_mask & (diff_block < threshold)
+
+                    result_block[keep_mask] = ground_block[keep_mask]
+
+                    np.seterr(invalid="warn")
+                else:
+                    result_block = np.where((ground_block - smoothed_block) >= threshold, nodata, ground_block)
+
+                dst.write(result_block, 1, window=window)
+
+
 def main(
     dsm_path,
     out_dir,
@@ -611,17 +663,10 @@ def main(
     smoothened_ground_path = os.path.join(temp_dir, dsm_name + "_ground_smth.tif")
     smoothen_raster(ground_dem_path, smoothened_ground_path, smoothen_radius)
 
-    # STEP 4: Difference raster
-    diff_raster_path = os.path.join(temp_dir, dsm_name + "_ground_diff.tif")
-    subtract_rasters(ground_dem_path, smoothened_ground_path, diff_raster_path)
-
-    # STEP 5: Thresholding
+    # STEP 4 & 5: Combined Difference and Thresholding
     thresholded_ground_path = os.path.join(temp_dir, dsm_name + "_ground_thresholded.tif")
-    replace_values(
-        ground_dem_path,
-        diff_raster_path,
-        thresholded_ground_path,
-        threshold=dsm_replace_threshold_val,
+    filter_ground_by_difference(
+        ground_dem_path, smoothened_ground_path, thresholded_ground_path, threshold=dsm_replace_threshold_val
     )
 
     # STEP 6: Removing noisy spikes
