@@ -1,6 +1,8 @@
 import os
+
 import pytest
 import rasterio
+
 from src.dsm2dtm import core as dsm2dtm
 
 
@@ -50,7 +52,7 @@ def test_extract_dtm(shared_temp_dir, dsm_ds_path, dsm_path):
     dsm_name = os.path.basename(dsm_path).split(".")[0]
     ground_dem_path = shared_temp_dir / f"{dsm_name}_ground.tif"
     non_ground_dem_path = shared_temp_dir / f"{dsm_name}_non_ground.tif"
-    
+
     dsm2dtm.extract_dtm(dsm_ds_path, str(ground_dem_path), str(non_ground_dem_path), 40, 13)
     assert ground_dem_path.is_file()
     assert non_ground_dem_path.is_file()
@@ -61,13 +63,13 @@ def test_pipeline_integration(shared_temp_dir, dsm_ds_path, dsm_path):
     Runs the rest of the pipeline steps that depend heavily on each other's outputs.
     """
     dsm_name = os.path.basename(dsm_path).split(".")[0]
-    
+
     ground_dem_path = shared_temp_dir / f"{dsm_name}_ground.tif"
-    
+
     # Ensure extract_dtm was run
     non_ground_dem_path = shared_temp_dir / f"{dsm_name}_non_ground.tif"
     dsm2dtm.extract_dtm(dsm_ds_path, str(ground_dem_path), str(non_ground_dem_path), 40, 13)
-    
+
     # Smoothen
     smoothened_ground_path = shared_temp_dir / f"{dsm_name}_ground_smth.tif"
     dsm2dtm.smoothen_raster(str(ground_dem_path), str(smoothened_ground_path), 45)
@@ -91,7 +93,7 @@ def test_pipeline_integration(shared_temp_dir, dsm_ds_path, dsm_path):
     # Expand holes
     bigger_holes_ground_path = shared_temp_dir / f"{dsm_name}_ground_bigger_holes.tif"
     temp_array = dsm2dtm.expand_holes_in_raster(str(ground_dem_filtered_path))
-    
+
     dsm2dtm.save_array_as_geotif(temp_array, str(ground_dem_filtered_path), str(bigger_holes_ground_path))
     assert bigger_holes_ground_path.is_file()
 
@@ -103,7 +105,7 @@ def test_pipeline_integration(shared_temp_dir, dsm_ds_path, dsm_path):
     # Verification
     with rasterio.open(dtm_path) as src:
         dtm_array = src.read(1)
-        
+
     assert dtm_array.shape == (56, 69)
     res = dsm2dtm.get_raster_resolution(str(dtm_path))
     assert abs(res[0] - 2.5193e-06) < 1e-6
@@ -115,10 +117,10 @@ def test_main_function(dsm_path, tmp_path):
     """Test the main entry point function end-to-end"""
     # tmp_path is a unique temporary directory for this function invocation provided by pytest
     dtm_path = dsm2dtm.main(dsm_path, str(tmp_path))
-    
+
     assert os.path.isfile(dtm_path)
     assert dtm_path.endswith(".tif")
-    
+
     with rasterio.open(dtm_path) as src:
         assert src.count == 1
         assert src.read(1).shape == (56, 69)
