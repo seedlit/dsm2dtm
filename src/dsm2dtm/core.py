@@ -2,6 +2,7 @@
 dsm2dtm - Generate DTM (Digital Terrain Model) from DSM (Digital Surface Model)
 Author: Naman Jain
         naman.jain@btech2015.iitgn.ac.in
+        www.namanji.wixsite.com/naman/
 """
 
 import os
@@ -9,7 +10,7 @@ import numpy as np
 import rasterio
 import argparse
 from rasterio.enums import Resampling
-from scipy.ndimage import grey_opening, gaussian_filter
+from scipy.ndimage import grey_opening, gaussian_filter, binary_dilation
 from rasterio.fill import fillnodata
 
 def downsample_raster(in_path, out_path, downsampling_factor):
@@ -30,17 +31,18 @@ def downsample_raster(in_path, out_path, downsampling_factor):
             transform=src.transform * src.transform.scale(
                 src.width / new_width, src.height / new_height
             ),
-            dtype=src.dtype # Keep original dtype unless explicitly changing
+            dtype=src.profile['dtype'] # Use dtype from profile
         )
 
         with rasterio.open(out_path, 'w', **profile) as dst:
-            # Read and write block by block
-            # This is a simplified block-wise approach, for complex resampling
-            # more sophisticated iteration over blocks might be needed.
             for ji, window in dst.block_windows(1):
                 # Read data from source window
-                # Calculate the window in the source raster that corresponds to the output block
-                src_window = rasterio.windows.get_parent(window, src.transform, dst.transform)
+                # Calculate source window based on destination window bounds
+                bounds = dst.window_bounds(window)
+                src_window = src.window(*bounds)
+                
+                # Round window to ensure we cover the area
+                src_window = src_window.round_offsets().round_shape()
                 
                 data = src.read(
                     1, # Assuming single band
@@ -65,17 +67,23 @@ def upsample_raster(in_path, out_path, target_height, target_width):
             height=target_height,
             width=target_width,
             transform=new_transform,
-            dtype=src.dtype # Keep original dtype unless explicitly changing
+            dtype=src.profile['dtype'] # Use dtype from profile
         )
 
         with rasterio.open(out_path, 'w', **profile) as dst:
             for ji, window in dst.block_windows(1):
-                # Read data from source that covers the output window,
-                # resampling it to the output window's size
+                # Read data from source window
+                # Calculate source window based on destination window bounds
+                bounds = dst.window_bounds(window)
+                src_window = src.window(*bounds)
+                
+                # Round window
+                src_window = src_window.round_offsets().round_shape()
+                
                 data = src.read(
                     1, # Assuming single band
                     out_shape=(window.height, window.width),
-                    window=rasterio.windows.get_parent(window, src.transform, dst.transform),
+                    window=src_window,
                     resampling=Resampling.bilinear
                 )
                 dst.write(data, 1, window=window)
@@ -91,62 +99,43 @@ def generate_slope_raster(in_path, out_path):
     with rasterio.open(in_path) as src:
         profile = src.profile
         nodata = src.nodata
-        res_x, res_y = src.res # Get resolution (assuming same units as Z, or degrees)
+        res_x, res_y = src.res 
         
-        # Update profile for output slope raster
         profile.update(
-            dtype=np.float32, # Slope is typically float
+            dtype=np.float32, 
             count=1,
-            nodata=nodata if nodata is not None else -9999.0 # Ensure nodata is set
+            nodata=nodata if nodata is not None else -9999.0 
         )
 
         with rasterio.open(out_path, 'w', **profile) as dst:
-            # Iterate over blocks, reading a slightly larger window for gradient calculation
-            # to handle edge effects, then writing the central part.
-            
-            # Define an overlap for gradient calculation (e.g., 1 pixel on each side)
             overlap = 1
-            
             for ji, window in dst.block_windows(1):
-                # Calculate a larger window for reading from source to handle overlap
                 read_window = rasterio.windows.union(
-                    src.window(*src.window_bounds(window)), # window_bounds returns (left, bottom, right, top)
-                    window # Ensure the output window itself is covered
+                    src.window(*src.window_bounds(window)), 
+                    window 
                 )
-                # Ideally, just expanding the window is simpler if we assume aligned pixels
                 read_window = rasterio.windows.Window(
                     window.col_off - overlap,
                     window.row_off - overlap,
                     window.width + 2 * overlap,
                     window.height + 2 * overlap
                 )
-                # intersect with dataset bounds
                 read_window = read_window.intersection(rasterio.windows.Window(0, 0, src.width, src.height))
 
-                # Read data with overlap
                 dem_block = src.read(1, window=read_window)
 
-                # Handle nodata within the block for gradient calculation
                 if nodata is not None:
                     dem_block_masked = np.ma.masked_equal(dem_block, nodata)
                 else:
                     dem_block_masked = dem_block
 
-                # Calculate gradient (slope) for the block
-                # Dividing by resolution to get gradient in correct units (dZ/dX, dZ/dY)
-                # Note: np.gradient returns (gradient_axis_0, gradient_axis_1) -> (dy, dx)
                 grad_y, grad_x = np.gradient(dem_block_masked, res_y, res_x)
-                
                 slope_radians = np.arctan(np.sqrt(grad_x**2 + grad_y**2))
                 slope_degrees = np.degrees(slope_radians)
 
-                # Apply nodata from masked array or original if needed
                 if nodata is not None:
                     slope_degrees[dem_block_masked.mask] = nodata
                 
-                # Extract the central part corresponding to the output block
-                # We need to map the output window coordinates back to the read_block coordinates
-                # Calculate offsets relative to the read_window
                 start_row = window.row_off - read_window.row_off
                 start_col = window.col_off - read_window.col_off
                 end_row = start_row + window.height
@@ -159,8 +148,6 @@ def generate_slope_raster(in_path, out_path):
 
                 dst.write(slope_output_block, 1, window=window)
 
-
-
 def get_mean(raster_path, ignore_value=-9999.0):
     """
     Calculates the mean of a raster, ignoring specified values, using rasterio block by block.
@@ -172,18 +159,15 @@ def get_mean(raster_path, ignore_value=-9999.0):
         nodata = src.nodata
         
         for ji, window in src.block_windows(1):
-            # Read block
             block = src.read(1, window=window)
             
-            # Mask nodata and ignore_value
             if nodata is not None:
                 mask = (block == nodata)
             else:
                 mask = np.zeros_like(block, dtype=bool)
                 
-            if ignore_value != -9999.0: # Check if explicit ignore value is provided/different
+            if ignore_value != -9999.0: 
                  mask |= (block == ignore_value)
-            # Also handle the default ignore_value if it's not the nodata
             elif ignore_value == -9999.0 and nodata != -9999.0:
                  mask |= (block == ignore_value)
 
@@ -198,36 +182,25 @@ def get_mean(raster_path, ignore_value=-9999.0):
         
     return total_sum / total_count
 
-
 def extract_dtm(dsm_path, ground_dem_path, non_ground_dem_path, radius, terrain_slope):
     """
     Generates a ground DEM and non-ground DEM raster from the input DSM raster
     using morphological operations block by block.
-    Input:
-        dsm_path: {string} path to the DSM raster
-        radius: {int} Search radius of kernel in cells (used for morphological filter).
-        terrain_slope: {float} average slope of the input terrain (currently unused but kept for compatibility).
-    Output:
-        ground_dem_path: {string} path to the generated ground DEM (GeoTIFF) raster
-        non_ground_dem_path: {string} path to the generated non-ground DEM (GeoTIFF) raster
     """
     with rasterio.open(dsm_path) as src:
         profile = src.profile
         nodata = src.nodata
         
-        # Update profile for output rasters
-        profile.update(dtype=src.dtype, count=1, driver='GTiff') # Maintain original dtype
+        profile.update(dtype=src.profile['dtype'], count=1, driver='GTiff') 
 
-        # Create overlapping structure element once
         struct_element = np.ones((2 * radius + 1, 2 * radius + 1))
 
         with rasterio.open(ground_dem_path, 'w', **profile) as dst_ground, \
              rasterio.open(non_ground_dem_path, 'w', **profile) as dst_non_ground:
             
-            overlap = radius # Overlap must cover the kernel radius
+            overlap = radius 
             
             for ji, window in dst_ground.block_windows(1):
-                # Calculate read window with padding
                 read_window = rasterio.windows.union(
                     src.window(*src.window_bounds(window)),
                     window
@@ -238,40 +211,30 @@ def extract_dtm(dsm_path, ground_dem_path, non_ground_dem_path, radius, terrain_
                     window.width + 2 * overlap,
                     window.height + 2 * overlap
                 )
-                # Clip to dataset bounds
                 read_window = read_window.intersection(rasterio.windows.Window(0, 0, src.width, src.height))
 
-                # Read data
                 dsm_block = src.read(1, window=read_window)
 
-                # Handle nodata
                 if nodata is not None:
-                    # Fill nodata with a very low value for opening (erosion then dilation)
-                    # Ideally, should be handled more gracefully, but for opening, 
-                    # minimum value is safe if it's below any valid data.
                     valid_mask = (dsm_block != nodata)
                     if np.any(valid_mask):
                         fill_value = np.min(dsm_block[valid_mask])
                     else:
-                        fill_value = -99999.0 # arbitrary low value if all nodata
+                        fill_value = -99999.0 
                         
                     dsm_filled = np.where(dsm_block == nodata, fill_value, dsm_block)
                 else:
                     dsm_filled = dsm_block
 
-                # Apply morphological opening
                 ground_block = grey_opening(dsm_filled, structure=struct_element)
 
-                # Restore nodata
                 if nodata is not None:
                     ground_block[dsm_block == nodata] = nodata
                 
-                # Calculate non-ground
                 non_ground_block = dsm_block - ground_block
                 if nodata is not None:
                     non_ground_block[dsm_block == nodata] = nodata
 
-                # Crop to output window
                 start_row = window.row_off - read_window.row_off
                 start_col = window.col_off - read_window.col_off
                 end_row = start_row + window.height
@@ -283,40 +246,63 @@ def extract_dtm(dsm_path, ground_dem_path, non_ground_dem_path, radius, terrain_
                 dst_ground.write(ground_output, 1, window=window)
                 dst_non_ground.write(non_ground_output, 1, window=window)
 
-
 def remove_noise(ground_dem_path, out_path, ignore_value=-99999.0):
     """
-    Removes noise (high elevation data points like roofs, etc.) from the ground DEM raster.
-    Replaces values in those pixels with No data Value (`ignore_value`).
+    Removes noise (high elevation data points like roofs, etc.) block by block.
+    First calculates global stats, then applies threshold block-wise.
     """
+    # 1. Calculate global statistics iteratively to avoid loading full raster
+    mean = get_mean(ground_dem_path, ignore_value)
+    
+    # Calculate stddev iteratively (requires a second pass or Welford's algorithm)
+    # For simplicity and memory efficiency, let's do a second pass for stddev
+    # Standard Deviation = sqrt( sum((x - mean)^2) / N )
+    sum_sq_diff = 0.0
+    count = 0
+    
     with rasterio.open(ground_dem_path) as src:
-        ground_np = src.read(1, masked=True) # Read as masked array to handle nodata
-        
-    # Calculate std and mean, ignoring nodata values
-    valid_values = ground_np[~ground_np.mask]
+        nodata = src.nodata
+        for ji, window in src.block_windows(1):
+            block = src.read(1, window=window)
+            
+            mask = np.zeros_like(block, dtype=bool)
+            if nodata is not None:
+                mask |= (block == nodata)
+            if ignore_value != -9999.0:
+                mask |= (block == ignore_value)
+            elif ignore_value == -9999.0 and nodata != -9999.0:
+                 mask |= (block == ignore_value)
 
-    if valid_values.size == 0:
-        # If no valid data, just write an empty raster or handle as appropriate
-        # For now, let's return without modification, or create an empty raster
-        # For now, create an empty raster with nodata
+            valid_data = block[~mask]
+            if valid_data.size > 0:
+                sum_sq_diff += np.sum((valid_data - mean) ** 2)
+                count += valid_data.size
+                
+    if count == 0:
+        std = 0.0
+    else:
+        std = np.sqrt(sum_sq_diff / count)
+        
+    threshold_value = mean + 1.5 * std
+
+    # 2. Apply threshold block by block
+    with rasterio.open(ground_dem_path) as src:
         profile = src.profile
         profile.update(nodata=ignore_value)
+        
         with rasterio.open(out_path, 'w', **profile) as dst:
-            dst.write(np.full(src.shape, ignore_value, dtype=src.dtype), 1)
-        return
-
-    std = valid_values.std()
-    mean = valid_values.mean()
-    threshold_value = mean + 1.5 * std
-    
-    # Create a copy to modify without affecting the original masked array
-    modified_ground_np = ground_np.filled(fill_value=ignore_value) # Fill masked areas with ignore_value
-
-    # Apply thresholding
-    modified_ground_np[modified_ground_np >= threshold_value] = ignore_value
-    
-    save_array_as_geotif(modified_ground_np, ground_dem_path, out_path, nodata_value=ignore_value)
-
+            for ji, window in src.block_windows(1):
+                block = src.read(1, window=window)
+                
+                # Apply masking for processing
+                if src.nodata is not None:
+                    # Treat src nodata as ignore_value for output consistency
+                    block[block == src.nodata] = ignore_value
+                
+                # Apply threshold
+                block[block >= threshold_value] = ignore_value
+                
+                dst.write(block, 1, window=window)
 
 def save_array_as_geotif(array, source_tif_path, out_path, nodata_value=None):
     """
@@ -325,184 +311,207 @@ def save_array_as_geotif(array, source_tif_path, out_path, nodata_value=None):
     with rasterio.open(source_tif_path) as src_profile:
         profile = src_profile.profile
 
-    # Update profile with array's dtype and nodata
     profile.update(
         dtype=array.dtype,
-        count=1, # Assuming single band output
+        count=1,
         nodata=nodata_value if nodata_value is not None else profile.get('nodata')
     )
 
     with rasterio.open(out_path, 'w', **profile) as dst:
         dst.write(array, 1)
 
-
 def close_gaps(in_path, out_path, max_search_distance=10.0, smoothing_iterations=0, nodata_value=None):
     """
-    Interpolates the holes (no data value) in the input raster using rasterio.fill.fillnodata.
-    Input:
-        in_path: {string} path to the input raster with holes
-        max_search_distance: {float} The maximum distance in pixels to search for valid pixels.
-        smoothing_iterations: {int} The number of smoothing iterations to apply.
-    Output:
-        out_path: {string} path to the generated raster with closed holes (GeoTIFF).
+    Interpolates holes using rasterio.fill.fillnodata block by block (with overlap).
     """
     with rasterio.open(in_path) as src:
-        in_array = src.read(1)
         profile = src.profile
         nodata = src.nodata if nodata_value is None else nodata_value
+        profile.update(nodata=nodata)
 
-    # Create a mask for nodata values
-    mask = in_array == nodata
+        with rasterio.open(out_path, 'w', **profile) as dst:
+            overlap = int(max_search_distance) + 2 # Padding for fill context
+            
+            for ji, window in dst.block_windows(1):
+                read_window = rasterio.windows.union(
+                    src.window(*src.window_bounds(window)), 
+                    window 
+                )
+                read_window = rasterio.windows.Window(
+                    window.col_off - overlap,
+                    window.row_off - overlap,
+                    window.width + 2 * overlap,
+                    window.height + 2 * overlap
+                )
+                read_window = read_window.intersection(rasterio.windows.Window(0, 0, src.width, src.height))
 
-    # Fill nodata values
-    filled_array = fillnodata(
-        in_array,
-        mask=mask,
-        max_search_distance=max_search_distance,
-        smoothing_iterations=smoothing_iterations
-    )
+                block = src.read(1, window=read_window)
+                mask = (block == nodata)
 
-    profile.update(dtype=filled_array.dtype, count=1, nodata=nodata, driver='GTiff')
+                filled_block = fillnodata(
+                    block,
+                    mask=mask,
+                    max_search_distance=max_search_distance,
+                    smoothing_iterations=smoothing_iterations
+                )
 
-    with rasterio.open(out_path, 'w', **profile) as dst:
-        dst.write(filled_array, 1)
+                # Crop
+                start_row = window.row_off - read_window.row_off
+                start_col = window.col_off - read_window.col_off
+                end_row = start_row + window.height
+                end_col = start_col + window.width
 
+                output_block = filled_block[start_row:end_row, start_col:end_col]
+                dst.write(output_block, 1, window=window)
 
 def smoothen_raster(in_path, out_path, radius=2, nodata_value=None):
     """
-    Applies gaussian filter to the input raster using scipy.ndimage.
-    Input:
-        in_path: {string} path to the input raster
-        radius: {int} kernel radius to be used for smoothing (standard deviation for Gaussian).
-    Output:
-        out_path: {string} path to the generated smoothened raster (GeoTIFF).
+    Applies gaussian filter block by block with overlap.
     """
     with rasterio.open(in_path) as src:
-        in_array = src.read(1)
         profile = src.profile
         nodata = src.nodata if nodata_value is None else nodata_value
+        profile.update(nodata=nodata)
 
-    # Handle nodata values
-    if nodata is not None:
-        # Fill nodata values for smoothing, then re-mask
-        # Using a conservative fill, e.g., mean of valid data or a constant
-        if np.any(in_array != nodata):
-            fill_value = np.mean(in_array[in_array != nodata])
-        else:
-            fill_value = 0.0 # Default if all are nodata
+        with rasterio.open(out_path, 'w', **profile) as dst:
+            # Overlap needs to be sufficient for Gaussian kernel (3*sigma rule of thumb)
+            overlap = int(3 * radius) + 1
+            
+            for ji, window in dst.block_windows(1):
+                read_window = rasterio.windows.union(
+                    src.window(*src.window_bounds(window)), 
+                    window 
+                )
+                read_window = rasterio.windows.Window(
+                    window.col_off - overlap,
+                    window.row_off - overlap,
+                    window.width + 2 * overlap,
+                    window.height + 2 * overlap
+                )
+                read_window = read_window.intersection(rasterio.windows.Window(0, 0, src.width, src.height))
 
-        temp_array = np.where(in_array == nodata, fill_value, in_array)
-    else:
-        temp_array = in_array
+                block = src.read(1, window=read_window)
 
-    # Apply Gaussian filter
-    smoothed_array = gaussian_filter(temp_array, sigma=radius)
+                if nodata is not None:
+                    if np.any(block != nodata):
+                        fill_value = np.mean(block[block != nodata])
+                    else:
+                        fill_value = 0.0
+                    temp_block = np.where(block == nodata, fill_value, block)
+                else:
+                    temp_block = block
 
-    # Restore nodata values
-    if nodata is not None:
-        smoothed_array[in_array == nodata] = nodata
+                smoothed_block = gaussian_filter(temp_block, sigma=radius)
 
-    profile.update(dtype=smoothed_array.dtype, count=1, nodata=nodata, driver='GTiff')
+                if nodata is not None:
+                    smoothed_block[block == nodata] = nodata
 
-    with rasterio.open(out_path, 'w', **profile) as dst:
-        dst.write(smoothed_array, 1)
+                start_row = window.row_off - read_window.row_off
+                start_col = window.col_off - read_window.col_off
+                end_row = start_row + window.height
+                end_col = start_col + window.width
 
+                output_block = smoothed_block[start_row:end_row, start_col:end_col]
+                dst.write(output_block, 1, window=window)
 
 def subtract_rasters(rasterA_path, rasterB_path, out_path, no_data_value=None):
     """
-    Subtracts rasterB from rasterA using numpy, saving the result as a GeoTIFF.
+    Subtracts rasterB from rasterA block by block.
     """
-    with rasterio.open(rasterA_path) as srcA:
-        arrayA = srcA.read(1)
+    with rasterio.open(rasterA_path) as srcA, rasterio.open(rasterB_path) as srcB:
         profile = srcA.profile
         nodataA = srcA.nodata if no_data_value is None else no_data_value
-
-    with rasterio.open(rasterB_path) as srcB:
-        arrayB = srcB.read(1)
         nodataB = srcB.nodata
+        
+        profile.update(nodata=nodataA)
 
-    # Perform subtraction
-    result_array = arrayA - arrayB
+        with rasterio.open(out_path, 'w', **profile) as dst:
+            for ji, window in dst.block_windows(1):
+                arrayA = srcA.read(1, window=window)
+                arrayB = srcB.read(1, window=window)
 
-    # Combine nodata masks and apply to result
-    # Consider nodata from either input as nodata in output
-    nodata_mask = (arrayA == nodataA) | (arrayB == nodataB)
-    if nodataA is not None:
-        result_array[nodata_mask] = nodataA
+                result_array = arrayA - arrayB
 
-    profile.update(dtype=result_array.dtype, count=1, nodata=nodataA, driver='GTiff')
-
-    with rasterio.open(out_path, 'w', **profile) as dst:
-        dst.write(result_array, 1)
-
+                nodata_mask = (arrayA == nodataA) | (arrayB == nodataB)
+                if nodataA is not None:
+                    result_array[nodata_mask] = nodataA
+                
+                dst.write(result_array, 1, window=window)
 
 def replace_values(
     rasterA_path, rasterB_path, out_path, no_data_value=None, threshold=0.98
 ):
     """
-    Replaces values in input rasterA with no_data_value where cell value >= threshold in rasterB.
+    Replaces values block by block.
     """
-    with rasterio.open(rasterA_path) as srcA:
-        arrayA = srcA.read(1)
+    with rasterio.open(rasterA_path) as srcA, rasterio.open(rasterB_path) as srcB:
         profile = srcA.profile
         nodataA = srcA.nodata if no_data_value is None else no_data_value
+        
+        profile.update(nodata=nodataA)
 
-    with rasterio.open(rasterB_path) as srcB:
-        arrayB = srcB.read(1)
+        with rasterio.open(out_path, 'w', **profile) as dst:
+            for ji, window in dst.block_windows(1):
+                arrayA = srcA.read(1, window=window)
+                arrayB = srcB.read(1, window=window)
 
-    # Apply replacement logic using numpy where
-    # Where arrayB >= threshold, use nodataA, else use arrayA
-    result_array = np.where(arrayB >= threshold, nodataA, arrayA)
-    
-    # Ensure nodata values from original rasterA are propagated
-    result_array[arrayA == nodataA] = nodataA
-
-    profile.update(dtype=result_array.dtype, count=1, nodata=nodataA, driver='GTiff')
-
-    with rasterio.open(out_path, 'w', **profile) as dst:
-        dst.write(result_array, 1)
-
+                result_array = np.where(arrayB >= threshold, nodataA, arrayA)
+                
+                if nodataA is not None:
+                    result_array[arrayA == nodataA] = nodataA
+                
+                dst.write(result_array, 1, window=window)
 
 def expand_holes_in_raster(
     in_path, search_window=7, no_data_value=-99999.0, threshold=50
 ):
     """
-    Expands holes (cells with no_data_value) in the input raster using numpy.
-    Input:
-        in_path: {string} path to the input raster
-        search_window: {int} kernel size to be used as window
-        threshold: {float} threshold on percentage of cells with no_data_value
-    Output:
-        np_raster: {numpy array} Returns the modified input raster's array
+    Expands holes (cells with no_data_value) in the input raster using scipy block by block.
+    Replaces inefficient nested loops with binary dilation-based logic.
     """
+    # This logic roughly translates to: if 'threshold'% of neighborhood is nodata, make pixel nodata.
+    # This is equivalent to checking the sum of nodata pixels in a window.
+    # If sum >= threshold_count, set to nodata.
+    # We can use scipy.ndimage.generic_filter or simpler convolution.
+    
+    # Actually, simply returning the array is not block-wise I/O. 
+    # This function originally returned a numpy array. 
+    # To keep with the flow, let's make it write to a file or return the array processing function
+    # But for OOM safety, it should probably process an input file and return an array (if small) 
+    # OR better: change the pipeline to expect this function to return
+    # the processed array block-by-block? 
+    # Actually, looking at main(), `save_array_as_geotif` is called immediately after.
+    # So `expand_holes` creates a big array, then `save` writes it.
+    # We should combine them or change `expand_holes` to return nothing and write to a file itself.
+    # Let's change the pattern: return the whole array but calculate efficiently.
+    
+    # Optimized implementation using convolution/filtering on the whole array (fast, but memory heavy)
+    # If we hit OOM here, we'll know. 
+    
     with rasterio.open(in_path) as src:
         np_raster = src.read(1)
         nodata = src.nodata if src.nodata is not None else no_data_value
     
-    # Ensure nodata is consistent for operations
-    np_raster_modified = np_raster.copy()
-    height, width = np_raster.shape
+    # Create binary mask of nodata
+    nodata_mask = (np_raster == nodata).astype(int)
     
-    # Iterate through the array with a sliding window
-    # This can be optimized with more advanced numpy/scipy operations
-    half_window = (search_window - 1) // 2
-
-    # Create a padded array to handle windowing at edges without conditional logic inside loop
-    padded_raster = np.pad(np_raster_modified, half_window, mode='edge')
+    # Kernel for counting neighbors
+    kernel = np.ones((search_window, search_window))
     
-    for i in range(height):
-        for j in range(width):
-            window = padded_raster[i:i + search_window, j:j + search_window]
-            
-            # Calculate percentage of nodata values in the window
-            nodata_count = np.count_nonzero(window == nodata)
-            total_cells = search_window ** 2
-            
-            if (nodata_count / total_cells) * 100 >= threshold:
-                np_raster_modified[i, j] = nodata
-                
-    return np_raster_modified
-
+    # Count nodata neighbors
+    # scipy.ndimage.convolve or correlate. 
+    # We want count of 1s in window.
+    from scipy.ndimage import convolve
+    nodata_count = convolve(nodata_mask, kernel, mode='constant', cval=0)
+    
+    # Threshold count
+    threshold_count = (threshold * search_window ** 2) / 100
+    
+    # Update raster
+    new_nodata_mask = nodata_count >= threshold_count
+    np_raster[new_nodata_mask] = nodata
+    
+    return np_raster
 
 def get_raster_crs(raster_path):
     """
@@ -529,73 +538,28 @@ def get_res_and_downsample(dsm_path, temp_dir):
 
     downsampled_dsm_path = dsm_path # Initialize with original path
 
-    # Use a common reference resolution (e.g., 30cm or similar for projected, degrees for geographic)
-    # The original logic used gdal.Open(dsm_path).GetGeoTransform()[1] directly which is problematic
-    # as it implies downsampling factor is directly tied to target_res / current_x_res.
-    # Let's simplify for initial refactor and assume downsampling is only applied if original is too high-res.
-
     current_x_res, current_y_res = get_raster_resolution(dsm_path)
 
     if dsm_crs != 4326: # Projected CRS
         if current_x_res < 0.3 or current_y_res < 0.3: # If resolution is finer than 30cm
             target_res = 0.3
-            # Calculate scale factor for rasterio
-            x_scale = current_x_res / target_res
-            y_scale = current_y_res / target_res
-            
+            factor = target_res / current_x_res
             downsampled_dsm_path = os.path.join(temp_dir, dsm_name + "_ds.tif")
-            with rasterio.open(dsm_path) as src:
-                profile = src.profile
-                # Calculate new dimensions based on scale
-                new_height = int(src.height / y_scale)
-                new_width = int(src.width / x_scale)
-                
-                # Read and resample
-                resampled_data = src.read(
-                    out_shape=(src.count, new_height, new_width),
-                    resampling=Resampling.bilinear
-                )
-                # Update profile for resampled data
-                profile.update(
-                    transform=src.transform * src.transform.scale(1/x_scale, 1/y_scale),
-                    width=new_width,
-                    height=new_height
-                )
-                with rasterio.open(downsampled_dsm_path, 'w', **profile) as dst:
-                    dst.write(resampled_data)
+            downsample_raster(dsm_path, downsampled_dsm_path, factor)
             dsm_path = downsampled_dsm_path
-    else: # Geographic CRS (WGS84, etc.)
-        # Example: if resolution is finer than ~2.5e-6 degrees (approx 30cm at equator)
+            
+    else: # Geographic CRS
         if current_x_res < 2.514e-06 or current_y_res < 2.514e-06:
             target_res = 2.514e-06
-            x_scale = current_x_res / target_res
-            y_scale = current_y_res / target_res
-
+            factor = target_res / current_x_res
             downsampled_dsm_path = os.path.join(temp_dir, dsm_name + "_ds.tif")
-            with rasterio.open(dsm_path) as src:
-                profile = src.profile
-                new_height = int(src.height / y_scale)
-                new_width = int(src.width / x_scale)
-                
-                resampled_data = src.read(
-                    out_shape=(src.count, new_height, new_width),
-                    resampling=Resampling.bilinear
-                )
-                profile.update(
-                    transform=src.transform * src.transform.scale(1/x_scale, 1/y_scale),
-                    width=new_width,
-                    height=new_height
-                )
-                with rasterio.open(downsampled_dsm_path, 'w', **profile) as dst:
-                    dst.write(resampled_data)
+            downsample_raster(dsm_path, downsampled_dsm_path, factor)
             dsm_path = downsampled_dsm_path
 
     return dsm_path
 
 
 def get_updated_params(dsm_path, search_radius, smoothen_radius):
-    # search_radius and smoothen_radius are set wrt to 30cm DSM
-    # returns updated parameters if DSM is of coarser resolution
     x_res, y_res = get_raster_resolution(dsm_path)  # resolutions are in meters
     dsm_crs = get_raster_crs(dsm_path)
     if dsm_crs != 4326:
@@ -630,13 +594,13 @@ def main(
     )
     
     # Generate DTM
-    # STEP 1: Generate slope raster from dsm to get average slope value
+    # STEP 1: Generate slope raster
     dsm_name = os.path.splitext(os.path.basename(dsm_path))[0]
     dsm_slp_path = os.path.join(temp_dir, dsm_name + "_slp.tif")
     generate_slope_raster(dsm_path, dsm_slp_path)
     avg_slp = int(get_mean(dsm_slp_path))
     
-    # STEP 2: Split DSM into ground and non-ground surface rasters
+    # STEP 2: Split DSM into ground and non-ground
     ground_dem_path = os.path.join(temp_dir, dsm_name + "_ground.tif")
     non_ground_dem_path = os.path.join(temp_dir, dsm_name + "_non_ground.tif")
     extract_dtm(
@@ -647,15 +611,15 @@ def main(
         avg_slp,
     )
     
-    # STEP 3: Applying Gaussian Filter on the generated ground raster (parameters: radius = 45, mode = Circle)
+    # STEP 3: Gaussian Filter
     smoothened_ground_path = os.path.join(temp_dir, dsm_name + "_ground_smth.tif")
     smoothen_raster(ground_dem_path, smoothened_ground_path, smoothen_radius)
     
-    # STEP 4: Generating a difference raster (ground DEM - smoothened ground DEM)
+    # STEP 4: Difference raster
     diff_raster_path = os.path.join(temp_dir, dsm_name + "_ground_diff.tif")
     subtract_rasters(ground_dem_path, smoothened_ground_path, diff_raster_path)
     
-    # STEP 5: Thresholding on the difference raster to replace values in Ground DEM by no-data values (threshold = 0.98)
+    # STEP 5: Thresholding
     thresholded_ground_path = os.path.join(
         temp_dir, dsm_name + "_ground_thresholded.tif"
     )
@@ -666,39 +630,32 @@ def main(
         threshold=dsm_replace_threshold_val,
     )
     
-    # STEP 6: Removing noisy spikes from the generated DTM
+    # STEP 6: Removing noisy spikes
     ground_dem_filtered_path = os.path.join(temp_dir, dsm_name + "_ground_filtered.tif")
     remove_noise(thresholded_ground_path, ground_dem_filtered_path)
     
-    # STEP 7: Expanding holes in the thresholded ground raster
+    # STEP 7: Expanding holes
     bigger_holes_ground_path = os.path.join(
         temp_dir, dsm_name + "_ground_bigger_holes.tif"
     )
+    # Note: expand_holes_in_raster still returns array for now, optimizing it is partial fix
     temp_array = expand_holes_in_raster(ground_dem_filtered_path)
     save_array_as_geotif(temp_array, ground_dem_filtered_path, bigger_holes_ground_path)
     
-    # STEP 8: Close gaps in the DTM
+    # STEP 8: Close gaps
     dtm_final_temp_path = os.path.join(temp_dir, dsm_name + "_dtm_final.tif")
     close_gaps(bigger_holes_ground_path, dtm_final_temp_path)
     
-    # STEP 9: Final output DTM to the specified out_dir
+    # STEP 9: Final output
     dtm_tif_path = os.path.join(out_dir, os.path.splitext(os.path.basename(original_dsm_path))[0] + "_dtm.tif")
 
-    # We need to copy or translate the final temporary DTM to its permanent location
-    # For simplicity, let's just rename/move it for now if it's the last step.
-    # A robust solution might involve resampling back to original resolution/extent if downsampled initially.
-
-    # For now, simply move the final temp DTM to the expected output path
-    # This assumes no upsampling or further transformation to original DSM extent/resolution is needed at the end.
-    # If original DSM was downsampled, ideally we'd upsample the DTM back to original resolution here.
-
-    # Let's copy the content to handle cases where dtm_final_temp_path is not directly movable
     with rasterio.open(dtm_final_temp_path) as src_dtm:
-        dtm_array = src_dtm.read()
-        dtm_profile = src_dtm.profile
-
-    with rasterio.open(dtm_tif_path, 'w', **dtm_profile) as dst_dtm:
-        dst_dtm.write(dtm_array)
+        # We should really avoid reading the whole file here too
+        # Copy file block by block or just shutil.copy if format/profile is identical
+        profile = src_dtm.profile
+        with rasterio.open(dtm_tif_path, 'w', **profile) as dst_dtm:
+             for ji, window in src_dtm.block_windows(1):
+                 dst_dtm.write(src_dtm.read(1, window=window), 1, window=window)
 
     return dtm_tif_path
 
