@@ -1,35 +1,23 @@
-# Use Debian Bookworm directly to avoid conflicts with /usr/local python
-FROM debian:bookworm-slim
+# Use an official Python 3.12 runtime as a parent image
+FROM python:3.13-slim-bookworm
 
-# Prevent Python from writing pyc files to disc
-ENV PYTHONDONTWRITEBYTECODE=1
-# Prevent Python from buffering stdout and stderr
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Install system dependencies including python, gdal, and saga
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    python3-numpy \
-    python3-rasterio \
-    python3-gdal \
-    python3-pytest \
-    saga \
-    gdal-bin \
-    && rm -rf /var/lib/apt/lists/*
+# Install uv, our package installer
+RUN pip install uv
 
-# Set the working directory in the container
-WORKDIR /app
+RUN apt-get update && apt-get install -y libexpat1 libgdal-dev build-essential && rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file into the container at /app
-COPY requirements.txt /app/
 
-# Install any remaining python dependencies
-# We use --break-system-packages because we are in a container and want to layer on top of system packages
-RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
+WORKDIR /usr/src/app
 
-# Copy the rest of the application code
-COPY . /app/
+# Copy the dependency configuration files
+COPY pyproject.toml ./
 
-# Define the entrypoint
-ENTRYPOINT ["python3", "dsm2dtm.py"]
+# Install dependencies using uv
+# We install 'test' dependencies as well for running tests in the container
+RUN uv pip install --system -e '.[test]'
+
+# Copy the rest of the application source code
+COPY . .
