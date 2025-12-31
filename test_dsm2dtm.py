@@ -1,15 +1,13 @@
 import os
 import shutil
+
 import pytest
-from src.dsm2dtm import core as dsm2dtm
 import rasterio
-import numpy as np
-try:
-    from osgeo import gdal
-except ImportError:
-    import gdal
+
+from src.dsm2dtm import core as dsm2dtm
 
 DSM_PATH = "data/sample_dsm.tif"
+
 
 @pytest.fixture(scope="module")
 def temp_dir():
@@ -21,10 +19,12 @@ def temp_dir():
     if os.path.exists(out_dir):
         shutil.rmtree(out_dir)
 
+
 @pytest.fixture(scope="module")
 def dsm_ds_path(temp_dir):
     """Fixture to provide the downsampled DSM path, as it's used by subsequent tests."""
     return dsm2dtm.get_res_and_downsample(DSM_PATH, temp_dir)
+
 
 def test_downsampling(temp_dir, dsm_ds_path):
     dsm_name = DSM_PATH.split("/")[-1].split(".")[0]
@@ -32,8 +32,10 @@ def test_downsampling(temp_dir, dsm_ds_path):
     assert dsm_ds_path == expected_path
     assert os.path.isfile(expected_path)
 
+
 def test_get_updated_params(dsm_ds_path):
     assert dsm2dtm.get_updated_params(dsm_ds_path, 40, 45) == (40, 45)
+
 
 def test_generate_slope_raster(temp_dir, dsm_ds_path):
     dsm_name = DSM_PATH.split("/")[-1].split(".")[0]
@@ -42,14 +44,16 @@ def test_generate_slope_raster(temp_dir, dsm_ds_path):
     assert os.path.isfile(dsm_slp_path)
     assert int(dsm2dtm.get_mean(dsm_slp_path)) == 89
 
+
 def test_extract_dtm(temp_dir, dsm_ds_path):
     dsm_name = DSM_PATH.split("/")[-1].split(".")[0]
-    ground_dem_path = os.path.join(temp_dir, dsm_name + "_ground.tif") # Expect .tif
-    non_ground_dem_path = os.path.join(temp_dir, dsm_name + "_non_ground.tif") # Expect .tif
+    ground_dem_path = os.path.join(temp_dir, dsm_name + "_ground.tif")  # Expect .tif
+    non_ground_dem_path = os.path.join(temp_dir, dsm_name + "_non_ground.tif")  # Expect .tif
     # Slope is hardcoded to 89 based on original test expectation, may need adjustment with new algorithm
     dsm2dtm.extract_dtm(dsm_ds_path, ground_dem_path, non_ground_dem_path, 40, 13)
     assert os.path.isfile(ground_dem_path)
     assert os.path.isfile(non_ground_dem_path)
+
 
 def test_pipeline_integration(temp_dir, dsm_ds_path):
     """
@@ -59,7 +63,7 @@ def test_pipeline_integration(temp_dir, dsm_ds_path):
     ground_dem_path = os.path.join(temp_dir, dsm_name + "_ground.tif")
     non_ground_dem_path = os.path.join(temp_dir, dsm_name + "_non_ground.tif")
     dsm2dtm.extract_dtm(dsm_ds_path, ground_dem_path, non_ground_dem_path, 40, 13)
-    
+
     # Ensure previous step created the file (redundant but safe)
     assert os.path.isfile(ground_dem_path)
 
@@ -87,7 +91,7 @@ def test_pipeline_integration(temp_dir, dsm_ds_path):
     bigger_holes_ground_path = os.path.join(temp_dir, dsm_name + "_ground_bigger_holes.tif")
     temp_array = dsm2dtm.expand_holes_in_raster(ground_dem_filtered_path)
     assert temp_array.shape == (286, 315)
-    
+
     dsm2dtm.save_array_as_geotif(temp_array, ground_dem_filtered_path, bigger_holes_ground_path)
     assert os.path.isfile(bigger_holes_ground_path)
 
@@ -109,12 +113,13 @@ def test_pipeline_integration(temp_dir, dsm_ds_path):
     assert abs(res[1] - 2.5193e-06) < 1e-6
     assert dsm2dtm.get_raster_crs(dtm_path) == 4326
 
+
 def test_main_function():
     """Test the main entry point function end-to-end"""
     out_dir = "test_results_main"
     if os.path.exists(out_dir):
         shutil.rmtree(out_dir)
-        
+
     try:
         dtm_path = dsm2dtm.main(DSM_PATH, out_dir)
         assert os.path.isfile(dtm_path)

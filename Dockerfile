@@ -7,8 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Install uv, our package installer
 RUN pip install uv
 
-RUN apt-get update && apt-get install -y libexpat1 libgdal-dev build-essential && rm -rf /var/lib/apt/lists/*
-
+RUN apt-get update && apt-get install -y libexpat1 libgdal-dev build-essential git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/app
 
@@ -17,7 +16,7 @@ COPY pyproject.toml ./
 
 # Install dependencies using uv
 # We install 'test' dependencies as well for running tests in the container
-RUN uv pip install --system -e '.[test]'
+RUN uv pip install --system -e '.[test,dev]'
 
 # Copy the rest of the application source code
 COPY . .

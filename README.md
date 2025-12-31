@@ -10,16 +10,16 @@ This repo generates DTM (Digital Terrain Model) from DSM (Digital Surface Model)
 ![Python Version Supported](https://img.shields.io/badge/python-3.5%2B-blue)
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/dsm2dtm/badges/platforms.svg)](https://anaconda.org/conda-forge/dsm2dtm)
 
-## Installation 
+## Installation
 
 **Note**: We are unable to install Saga as part of the dependency, as it is not avilable on PyPI or conda. <br/>
 To install saga_cmd - `sudo apt update; sudo apt install saga`
 
 ### From Conda:
 ```bash
-conda install -c conda-forge dsm2dtm 
+conda install -c conda-forge dsm2dtm
 ```
-These step are for Linux. This will differ a bit for MacOS and windows. 
+These step are for Linux. This will differ a bit for MacOS and windows.
 ### From Source
 
 ```bash
