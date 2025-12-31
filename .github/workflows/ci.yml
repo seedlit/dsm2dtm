@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    env:
+      UV_SYSTEM_PYTHON: 1
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        uv pip install -e '.[test,dev]'
+
+    - name: Run Ruff Lint
+      run: uv run ruff check .
+
+    - name: Run Ruff Format Check
+      run: uv run ruff format --check .
+
+    - name: Run Tests
+      run: uv run pytest
