@@ -1,65 +1,102 @@
 # dsm2dtm
+
 <img align="right" width = 200 height=80 src="./data/logo.png">
 
-This repo generates DTM (Digital Terrain Model) from DSM (Digital Surface Model).
+**Generate DTM (Digital Terrain Model) from DSM (Digital Surface Model)**
 
-[![GitHub](https://img.shields.io/github/license/seedlit/dsm2dtm?style=flat-square)](https://github.com/seedlit/dsm2dtm/blob/main/LICENSE)
-[![Anaconda-Server Badge](https://anaconda.org/conda-forge/dsm2dtm/badges/downloads.svg)](https://anaconda.org/conda-forge/dsm2dtm)
-[![Conda Version](https://img.shields.io/conda/vn/conda-forge/dsm2dtm.svg)](https://anaconda.org/conda-forge/dsm2dtm)
-[![GitHub contributors](https://img.shields.io/github/contributors/seedlit/dsm2dtm?style=flat-square)](https://github.com/seedlit/dsm2dtm/graphs/contributors)
-![Python Version Supported](https://img.shields.io/badge/python-3.5%2B-blue)
-[![Anaconda-Server Badge](https://anaconda.org/conda-forge/dsm2dtm/badges/platforms.svg)](https://anaconda.org/conda-forge/dsm2dtm)
+[![CI](https://github.com/seedlit/dsm2dtm/actions/workflows/ci.yml/badge.svg)](https://github.com/seedlit/dsm2dtm/actions/workflows/ci.yml)
+[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)](https://python.org)
+[![License](https://img.shields.io/github/license/seedlit/dsm2dtm?style=flat-square)](LICENSE)
 
-## Installation 
+A modern, high-performance, pure-Python library for generating Digital Terrain Models (DTM) from Digital Surface Models (DSM).
 
-**Note**: We are unable to install Saga as part of the dependency, as it is not avilable on PyPI or conda. <br/>
-To install saga_cmd - `sudo apt update; sudo apt install saga`
+Key features:
+*   **Pure Python**: No external binary dependencies like SAGA GIS or GDAL CLI tools. Just `pip install`.
+*   **Memory Efficient**: Processes large rasters block-by-block, ensuring low memory usage.
+*   **Fast**: Optimized `numpy` and `scipy` operations for slope calculation, morphological filtering, and smoothing.
 
-### From Conda:
-```bash
-conda install -c conda-forge dsm2dtm 
-```
-These step are for Linux. This will differ a bit for MacOS and windows. 
+## Installation
+
 ### From Source
 
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/seedlit/dsm2dtm.git
+    cd dsm2dtm
+    ```
+
+2.  Install using `uv` (recommended) or `pip`:
+    ```bash
+    # Using uv (faster)
+    uv pip install .
+
+    # Using standard pip
+    pip install .
+    ```
+
+### Development Setup
+
+To contribute or run tests, install the development dependencies:
+
 ```bash
-# Step 1: Clone the repo
-% git clone https://github.com/seedlit/dsm2dtm.git
-# Step 2: Move in the folder
-% cd dsm2dtm
-# Step 3: Create a virtual environment
-% python3 -m venv venv
-# Step 4: Activate the environment
-% source venv/bin/activate
-# Step 5: Install requirements
-% pip install -r requirements.txt
-# Step 6: Install saga_cmd
-% sudo apt update
-% sudo apt install saga
+uv pip install -e '.[test,dev]'
+pre-commit install
 ```
 
 ## Usage
-Run the script dsm2dtm.py and pass the dsm path as argument.
+
+### Command Line Interface (CLI)
+
+After installation, use the `dsm2dtm` command:
+
 ```bash
-python dsm2dtm.py --dsm data/sample_dsm.tif
+dsm2dtm --dsm data/sample_dsm.tif --out_dir results/
 ```
 
-### Example1: Input DSM and generated DTM over a flat terrain
+**Arguments:**
+*   `--dsm`: Path to the input Digital Surface Model (GeoTIFF).
+*   `--out_dir`: Directory where the generated DTM will be saved. Defaults to `generated_dtm`.
+
+### Python API
+
+You can also use `dsm2dtm` as a library in your own Python scripts:
+
+```python
+from dsm2dtm.core import main
+
+dsm_path = "path/to/dsm.tif"
+out_dir = "path/to/output"
+
+# Generate the DTM
+dtm_path = main(dsm_path, out_dir)
+
+print(f"DTM generated at: {dtm_path}")
+```
+
+## How it Works
+
+The pipeline performs the following steps to extract the terrain:
+
+1.  **Slope Calculation**: Generates a slope raster from the input DSM.
+2.  **Morphological Filtering**: Uses a "Grey Opening" operation to estimate the bare earth surface (DTM) by removing non-ground features (like trees and buildings).
+3.  **Smoothing**: Applies a Gaussian filter to smoothen the estimated ground surface.
+4.  **Difference Calculation**: Subtracts the smoothed ground from the initial ground estimate.
+5.  **Thresholding**: Replaces values in the ground model where the difference exceeds a threshold.
+6.  **Noise Removal**: Removes statistical outliers (spikes).
+7.  **Gap Filling**: Interpolates remaining holes to produce a continuous DTM.
+
+All steps are performed using block-wise processing to handle rasters larger than available RAM.
+
+## Examples
+
+### Example 1: Flat Terrain
+Input DSM vs. Generated DTM over a flat area.
 ![example](./results/result.png)
 
-### Example2: Input DSM, generated DTM, and groundtruth DTM (Lidar derived) over a hillside terrain
-DSM was derived from [this point cloud data](https://cloud.rockrobotic.com/share/f42b5b69-c87c-4433-94f8-4bc0d8eaee90#lidar)
+### Example 2: Hillside Terrain
+Comparison of Input DSM, Generated DTM, and Ground Truth DTM (Lidar derived).
 ![example](./results/example2_dsm2dtm_hillside.png)
 
+## License
 
-## TODO
- - Add tests and coverage
- - Add poetry (with separate dependencies for dev: black, isort, pyest, etc.)
- - Add pre-commit hooks (isort, black, mypy)
- - Add documentation
- - Move test file(s) to remote server OR use gitlfs OR use fake-geo-images
- - Reduce I/O by passing rasterio object instead of raster path
- - Add exception handling
- - use [SAGA python API](https://saga-gis.sourceforge.io/saga_api_python/index.html) instead of command line ineterface (saga_cmd)
- - upsample generated DTM if the source DSM was downsampled
- - setup docker-compose (and maybe expose as FastAPI app?)
+[MIT License](LICENSE)
