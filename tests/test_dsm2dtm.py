@@ -2,6 +2,7 @@ import os
 
 import pytest
 import rasterio
+
 from dsm2dtm import core
 
 
