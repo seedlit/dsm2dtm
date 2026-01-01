@@ -67,8 +67,18 @@ class DSMContext:
 def calculate_terrain_slope(dsm: NDArray[np.floating], resolution: float, nodata: float) -> float:
     """
     Calculate the median terrain slope (rise/run) of the DSM.
-    Used to automatically tune the PMF slope parameter.
-    For high resolution data, we decimate to ~1m to avoid noise/objects dominating the slope.
+
+    This function estimates the general slope of the terrain to automatically tune the
+    Progressive Morphological Filter (PMF) slope parameter. It calculates the gradient magnitude
+    of the DSM and takes the median of the valid slopes.
+
+    Args:
+        dsm (NDArray[np.floating]): The input Digital Surface Model (DSM) as a 2D numpy array.
+        resolution (float): The spatial resolution of the DSM (in meters per pixel).
+        nodata (float): The value representing no data in the DSM.
+
+    Returns:
+        float: The calculated median slope of the terrain (clamped between 0.01 and 1.0).
     """
     # Decimate if resolution is very fine (e.g. < 0.5m)
     # Target ~1.0m resolution for slope estimation
@@ -109,6 +119,19 @@ def get_adaptive_parameters(
 ) -> AdaptiveParameters:
     """
     Calculate algorithm parameters based on input resolution in meters.
+
+    This function scales various parameters (like window sizes and search distances)
+    based on the resolution of the input data to ensure consistent behavior across
+    datasets with different resolutions.
+
+    Args:
+        resolution (float): The spatial resolution of the DSM (in meters per pixel).
+        max_image_dimension (int, optional): The maximum dimension of the image to clamp window sizes.
+            Defaults to 10000.
+        base_slope (float, optional): The base slope value to use for PMF. Defaults to PMF_SLOPE.
+
+    Returns:
+        AdaptiveParameters: A data class containing the adapted parameters.
     """
     # Avoid division by zero
     res_meters = max(resolution, 0.001)
@@ -152,7 +175,24 @@ def progressive_morphological_filter(
     max_threshold: float = PMF_MAX_THRESHOLD,
 ) -> NDArray[np.floating]:
     """
-    Progressive Morphological Filter (PMF).
+    Apply the Progressive Morphological Filter (PMF) to separate ground from non-ground points.
+
+    PMF works by iteratively opening the surface with increasing window sizes. At each step,
+    pixels that rise above the opened surface by more than a dynamic threshold are classified as non-ground.
+
+    Args:
+        surface (NDArray[np.floating]): The input DSM surface array.
+        nodata (float): The nodata value.
+        initial_window (int): The initial size of the morphological window (in pixels).
+        max_window (int): The maximum size of the morphological window (in pixels).
+        slope (float): The slope parameter used to calculate the elevation threshold.
+        initial_threshold (float, optional): The initial elevation difference threshold.
+            Defaults to PMF_INITIAL_THRESHOLD.
+        max_threshold (float, optional): The maximum elevation difference threshold. Defaults to PMF_MAX_THRESHOLD.
+
+    Returns:
+        NDArray[np.floating]: An array representing the estimated ground surface,
+            with non-ground points replaced by the opened surface value.
     """
     valid_mask = surface != nodata
     if not np.any(valid_mask):
@@ -187,8 +227,21 @@ def refine_ground_surface(
     elevation_threshold: float = REFINEMENT_ELEVATION_THRESHOLD,
 ) -> NDArray[np.floating]:
     """
-    Refines ground surface by removing points that deviate significantly
-    from a smoothed version of the surface.
+    Refine the ground surface by removing points that deviate significantly from a smoothed version.
+
+    This step helps to remove residual non-ground objects (like small spikes) that might have been
+    missed by the PMF. It compares the current ground estimate with a Gaussian-smoothed version
+    and removes points that are higher than the smoothed surface by a specified threshold.
+
+    Args:
+        ground (NDArray[np.floating]): The estimated ground surface array.
+        nodata (float): The nodata value.
+        smoothen_radius (float): The sigma (standard deviation) for the Gaussian smoothing kernel (in pixels).
+        elevation_threshold (float, optional): The elevation difference threshold for outlier removal.
+            Defaults to REFINEMENT_ELEVATION_THRESHOLD.
+
+    Returns:
+        NDArray[np.floating]: The refined ground surface array with outliers marked as nodata.
     """
     valid_mask = ground != nodata
     if not np.any(valid_mask):
@@ -212,8 +265,23 @@ def _process_coarse_dsm(
     max_threshold: float,
 ) -> NDArray[np.floating]:
     """
-    Downsamples high-resolution DSM, processes at coarse resolution,
-    and upsamples the result.
+    Downsamples high-resolution DSM, processes at coarse resolution, and upsamples the result.
+
+    This function is a helper for `dsm_to_dtm` to handle very high-resolution data efficiently
+    and stably. It downsamples the input DSM to a coarser resolution, runs the DTM generation
+    process on the coarse data, and then upsamples the result back to the original resolution.
+
+    Args:
+        dsm (NDArray[np.floating]): The high-resolution input DSM.
+        cell_size (float): The pixel size of the input DSM (in meters).
+        nodata (float): The nodata value.
+        kernel_radius_meters (Optional[float]): The radius for the PMF window in meters.
+        slope (Optional[float]): The terrain slope parameter.
+        initial_threshold (float): The initial elevation threshold for PMF.
+        max_threshold (float): The maximum elevation threshold for PMF.
+
+    Returns:
+        NDArray[np.floating]: The generated DTM at the original resolution.
     """
     target_res = MIN_PROCESSING_RESOLUTION_METERS
 
@@ -295,6 +363,25 @@ def _process_standard_dsm(
 ) -> NDArray[np.floating]:
     """
     Standard DTM generation pipeline: Parameters -> PMF -> Refine -> Smooth -> GapFill.
+
+    This pipeline consists of:
+    1. Parameter adaptation based on resolution.
+    2. Progressive Morphological Filtering (PMF) to identify ground points.
+    3. Refinement to remove outliers based on local smoothing.
+    4. Final light Gaussian smoothing.
+    5. Gap interpolation to fill nodata areas.
+
+    Args:
+        dsm (NDArray[np.floating]): The input DSM array.
+        cell_size (float): The pixel size (in meters).
+        nodata (float): The nodata value.
+        kernel_radius_meters (Optional[float]): User-specified kernel radius in meters.
+        slope (Optional[float]): User-specified terrain slope.
+        initial_threshold (float): Initial elevation threshold for PMF.
+        max_threshold (float): Maximum elevation threshold for PMF.
+
+    Returns:
+        NDArray[np.floating]: The resulting DTM array.
     """
     # Calculate Slope dynamically if not provided
     if slope is None:
@@ -375,6 +462,21 @@ def dsm_to_dtm(
     """
     Generate DTM from DSM using Progressive Morphological Filter with refinement.
     Handles high-resolution data by optionally processing at a coarser scale.
+
+    Args:
+        dsm (NDArray[np.floating]): The input DSM array.
+        resolution (Tuple[float, float]): The resolution of the DSM (x_res, y_res).
+        kernel_radius_meters (Optional[float], optional): The maximum window radius for filtering in meters.
+            Defaults to None.
+        slope (Optional[float], optional): The terrain slope. If None, it is calculated automatically.
+            Defaults to None.
+        initial_threshold (float, optional): The initial elevation threshold for PMF.
+            Defaults to PMF_INITIAL_THRESHOLD.
+        max_threshold (float, optional): The maximum elevation threshold for PMF. Defaults to PMF_MAX_THRESHOLD.
+        nodata (float, optional): The nodata value. Defaults to DEFAULT_NODATA.
+
+    Returns:
+        NDArray[np.floating]: The generated DTM as a numpy array.
     """
     # Calculate cell size (degrees or meters)
     cell_size = (abs(resolution[0]) + abs(resolution[1])) / 2.0
@@ -393,6 +495,12 @@ def dsm_to_dtm(
 def _load_dsm(dsm_path: str) -> DSMContext:
     """
     Loads the DSM file. If Geographic, reprojects to UTM in memory.
+
+    Args:
+        dsm_path (str): The file path to the DSM.
+
+    Returns:
+        DSMContext: A context object containing the loaded DSM data and metadata.
     """
     with rasterio.open(dsm_path) as src:
         is_geographic = src.crs and src.crs.is_geographic
@@ -457,6 +565,11 @@ def _load_dsm(dsm_path: str) -> DSMContext:
 def _save_dtm(dtm: NDArray[np.floating], output_path: str, context: DSMContext) -> None:
     """
     Saves the DTM. Reprojects back to original CRS if the input was reprojected.
+
+    Args:
+        dtm (NDArray[np.floating]): The generated DTM array.
+        output_path (str): The file path where the DTM will be saved.
+        context (DSMContext): The context object containing original metadata and CRS info.
     """
     if not context.is_reprojected:
         profile = context.profile.copy()
@@ -509,6 +622,19 @@ def main(
     """
     Generate DTM from DSM file.
     Automatically handles Geographic CRS by reprojecting to local UTM.
+
+    Args:
+        dsm_path (str): Path to the input DSM file.
+        out_dir (str): Directory where the output DTM will be saved.
+        kernel_radius_meters (float, optional): Kernel radius for PMF in meters.
+            Defaults to DEFAULT_KERNEL_RADIUS_METERS.
+        slope (Optional[float], optional): Terrain slope. If None, calculated from data. Defaults to None.
+        initial_threshold (float, optional): Initial elevation threshold for PMF.
+            Defaults to PMF_INITIAL_THRESHOLD.
+        max_threshold (float, optional): Max elevation threshold for PMF. Defaults to PMF_MAX_THRESHOLD.
+
+    Returns:
+        str: The path to the generated DTM file.
     """
     os.makedirs(out_dir, exist_ok=True)
     # Ensure temp dir exists if used internally
