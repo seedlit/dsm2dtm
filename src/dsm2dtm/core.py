@@ -7,7 +7,7 @@ Author: Naman Jain
 import argparse
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import rasterio
@@ -46,6 +46,22 @@ class AdaptiveParameters:
     refinement_smooth_sigma: float
     final_smooth_sigma: float
     gap_fill_search_dist: float
+
+
+@dataclass
+class DSMContext:
+    """Holds DSM data and metadata, including reprojection details."""
+
+    dsm: NDArray[np.floating]
+    profile: dict
+    nodata: float
+    resolution: Tuple[float, float]
+    is_reprojected: bool = False
+    original_crs: Optional[CRS] = None
+    original_transform: Optional[Affine] = None
+    original_shape: Optional[Tuple[int, int]] = None  # (height, width)
+    utm_crs: Optional[CRS] = None
+    utm_transform: Optional[Affine] = None
 
 
 def calculate_terrain_slope(dsm: NDArray[np.floating], resolution: float, nodata: float) -> float:
@@ -186,93 +202,100 @@ def refine_ground_surface(
     return refined
 
 
-def dsm_to_dtm(
+def _process_coarse_dsm(
     dsm: NDArray[np.floating],
-    resolution: tuple[float, float],
-    kernel_radius_meters: Optional[float] = None,
-    slope: Optional[float] = None,
-    initial_threshold: float = PMF_INITIAL_THRESHOLD,
-    max_threshold: float = PMF_MAX_THRESHOLD,
-    nodata: float = DEFAULT_NODATA,
+    cell_size: float,
+    nodata: float,
+    kernel_radius_meters: Optional[float],
+    slope: Optional[float],
+    initial_threshold: float,
+    max_threshold: float,
 ) -> NDArray[np.floating]:
     """
-    Generate DTM from DSM using Progressive Morphological Filter with refinement.
-    Handles high-resolution data by optionally processing at a coarser scale.
+    Downsamples high-resolution DSM, processes at coarse resolution,
+    and upsamples the result.
     """
-    # Calculate cell size (degrees or meters)
-    cell_size = (abs(resolution[0]) + abs(resolution[1])) / 2.0
-    cell_size = max(cell_size, 0.001)  # Avoid zero
+    target_res = MIN_PROCESSING_RESOLUTION_METERS
 
-    # Check if we should process at a coarser resolution
-    if cell_size < (MIN_PROCESSING_RESOLUTION_METERS * 0.9):
-        target_res = MIN_PROCESSING_RESOLUTION_METERS
+    # Calculate new dimensions
+    h, w = dsm.shape
+    scale = cell_size / target_res
+    new_h = int(h * scale)
+    new_w = int(w * scale)
 
-        # Calculate new dimensions
-        h, w = dsm.shape
-        scale = cell_size / target_res
-        new_h = int(h * scale)
-        new_w = int(w * scale)
+    # Guard against over-reduction for small chips
+    if new_h < 10 or new_w < 10:
+        # Too small to downsample, process as is
+        return _process_standard_dsm(
+            dsm, cell_size, nodata, kernel_radius_meters, slope, initial_threshold, max_threshold
+        )
 
-        # Guard against over-reduction for small chips
-        if new_h >= 10 and new_w >= 10:
-            print(
-                f"High resolution input ({cell_size:.4f}m). "
-                f"Downsampling to {MIN_PROCESSING_RESOLUTION_METERS}m for processing stability..."
-            )
+    print(
+        f"High resolution input ({cell_size:.4f}m). "
+        f"Downsampling to {MIN_PROCESSING_RESOLUTION_METERS}m for processing stability..."
+    )
 
-            # Transforms (Dummy, 0,0 origin)
-            src_transform = Affine.scale(cell_size, cell_size)
-            dst_transform = Affine.scale(target_res, target_res)
+    # Transforms (Dummy, 0,0 origin)
+    src_transform = Affine.scale(cell_size, cell_size)
+    dst_transform = Affine.scale(target_res, target_res)
+    dummy_crs = CRS.from_epsg(3857)
 
-            # Dummy CRS (Arbitrary but valid)
-            dummy_crs = CRS.from_epsg(3857)
+    dsm_coarse = np.empty((new_h, new_w), dtype=np.float32)
 
-            dsm_coarse = np.empty((new_h, new_w), dtype=np.float32)
+    reproject(
+        source=dsm,
+        destination=dsm_coarse,
+        src_transform=src_transform,
+        src_crs=dummy_crs,
+        dst_transform=dst_transform,
+        dst_crs=dummy_crs,
+        resampling=Resampling.bilinear,
+        src_nodata=nodata,
+        dst_nodata=nodata,
+    )
 
-            reproject(
-                source=dsm,
-                destination=dsm_coarse,
-                src_transform=src_transform,
-                src_crs=dummy_crs,
-                dst_transform=dst_transform,
-                dst_crs=dummy_crs,
-                resampling=Resampling.bilinear,
-                src_nodata=nodata,
-                dst_nodata=nodata,
-            )
+    # Recursive call with coarser resolution
+    # We pass slope=None to let it re-calculate/adapt to coarse DTM
+    dtm_coarse = dsm_to_dtm(
+        dsm_coarse,
+        (target_res, target_res),
+        kernel_radius_meters=kernel_radius_meters,
+        slope=slope,
+        initial_threshold=initial_threshold,
+        max_threshold=max_threshold,
+        nodata=nodata,
+    )
 
-            # Recursive call with coarser resolution
-            # We pass slope=None to let it re-calculate/adapt to coarse DTM
-            dtm_coarse = dsm_to_dtm(
-                dsm_coarse,
-                (target_res, target_res),
-                kernel_radius_meters=kernel_radius_meters,
-                slope=slope,  # Pass slope if user provided, else None
-                initial_threshold=initial_threshold,
-                max_threshold=max_threshold,
-                nodata=nodata,
-            )
+    # Upsample Result back to original size
+    dtm_fine = np.empty((h, w), dtype=np.float32)
 
-            # Upsample Result back to original size
-            dtm_fine = np.empty((h, w), dtype=np.float32)
+    reproject(
+        source=dtm_coarse,
+        destination=dtm_fine,
+        src_transform=dst_transform,  # Coarse
+        src_crs=dummy_crs,
+        dst_transform=src_transform,  # Original
+        dst_crs=dummy_crs,
+        resampling=Resampling.bilinear,
+        src_nodata=nodata,
+        dst_nodata=nodata,
+    )
 
-            # Upsample using Bilinear (works well for continuous terrain)
-            reproject(
-                source=dtm_coarse,
-                destination=dtm_fine,
-                src_transform=dst_transform,  # Coarse
-                src_crs=dummy_crs,
-                dst_transform=src_transform,  # Original
-                dst_crs=dummy_crs,
-                resampling=Resampling.bilinear,
-                src_nodata=nodata,
-                dst_nodata=nodata,
-            )
+    return dtm_fine
 
-            return dtm_fine
 
-    # --- Standard Processing (Full Resolution) ---
-
+def _process_standard_dsm(
+    dsm: NDArray[np.floating],
+    cell_size: float,
+    nodata: float,
+    kernel_radius_meters: Optional[float],
+    slope: Optional[float],
+    initial_threshold: float,
+    max_threshold: float,
+) -> NDArray[np.floating]:
+    """
+    Standard DTM generation pipeline: Parameters -> PMF -> Refine -> Smooth -> GapFill.
+    """
     # Calculate Slope dynamically if not provided
     if slope is None:
         slope = calculate_terrain_slope(dsm, cell_size, nodata)
@@ -287,8 +310,6 @@ def dsm_to_dtm(
     if kernel_radius_meters is not None:
         if cell_size < 0.01:
             # Fallback for un-projected Degree data (Lat/Lon).
-            # Note: This ignores longitude convergence (cos(lat)) and is inaccurate away from Equator.
-            # Best practice: Reproject to UTM before calling this function (as main() does).
             res_meters = cell_size * 111320.0
         else:
             res_meters = cell_size
@@ -342,6 +363,141 @@ def dsm_to_dtm(
     return dtm
 
 
+def dsm_to_dtm(
+    dsm: NDArray[np.floating],
+    resolution: Tuple[float, float],
+    kernel_radius_meters: Optional[float] = None,
+    slope: Optional[float] = None,
+    initial_threshold: float = PMF_INITIAL_THRESHOLD,
+    max_threshold: float = PMF_MAX_THRESHOLD,
+    nodata: float = DEFAULT_NODATA,
+) -> NDArray[np.floating]:
+    """
+    Generate DTM from DSM using Progressive Morphological Filter with refinement.
+    Handles high-resolution data by optionally processing at a coarser scale.
+    """
+    # Calculate cell size (degrees or meters)
+    cell_size = (abs(resolution[0]) + abs(resolution[1])) / 2.0
+    cell_size = max(cell_size, 0.001)  # Avoid zero
+
+    # Check if we should process at a coarser resolution
+    if cell_size < (MIN_PROCESSING_RESOLUTION_METERS * 0.9):
+        return _process_coarse_dsm(
+            dsm, cell_size, nodata, kernel_radius_meters, slope, initial_threshold, max_threshold
+        )
+
+    # --- Standard Processing (Full Resolution) ---
+    return _process_standard_dsm(dsm, cell_size, nodata, kernel_radius_meters, slope, initial_threshold, max_threshold)
+
+
+def _load_dsm(dsm_path: str) -> DSMContext:
+    """
+    Loads the DSM file. If Geographic, reprojects to UTM in memory.
+    """
+    with rasterio.open(dsm_path) as src:
+        is_geographic = src.crs and src.crs.is_geographic
+        nodata = src.nodata if src.nodata is not None else DEFAULT_NODATA
+
+        if not is_geographic:
+            return DSMContext(
+                dsm=src.read(1),
+                profile=src.profile,
+                nodata=nodata,
+                resolution=src.res,
+                is_reprojected=False,
+                original_shape=(src.height, src.width),
+            )
+
+        print(f"Input is Geographic ({src.crs}). Reprojecting to UTM for processing...")
+        left, bottom, right, top = src.bounds
+        center_lon = (left + right) / 2
+        center_lat = (bottom + top) / 2
+        utm_crs = estimate_utm_crs(center_lon, center_lat)
+        print(f"Selected CRS: {utm_crs}")
+
+        transform, width, height = calculate_default_transform(src.crs, utm_crs, src.width, src.height, *src.bounds)
+
+        dsm_utm = np.zeros((height, width), dtype=np.float32)
+        reproject(
+            source=rasterio.band(src, 1),
+            destination=dsm_utm,
+            src_transform=src.transform,
+            src_crs=src.crs,
+            dst_transform=transform,
+            dst_crs=utm_crs,
+            resampling=Resampling.bilinear,
+            dst_nodata=nodata,
+        )
+
+        profile = src.profile.copy()
+        profile.update(
+            {
+                "crs": utm_crs,
+                "transform": transform,
+                "width": width,
+                "height": height,
+                "nodata": nodata,
+            }
+        )
+
+        return DSMContext(
+            dsm=dsm_utm,
+            profile=profile,
+            nodata=nodata,
+            resolution=(transform[0], -transform[4]),
+            is_reprojected=True,
+            original_crs=src.crs,
+            original_transform=src.transform,
+            original_shape=(src.height, src.width),
+            utm_crs=utm_crs,
+            utm_transform=transform,
+        )
+
+
+def _save_dtm(dtm: NDArray[np.floating], output_path: str, context: DSMContext) -> None:
+    """
+    Saves the DTM. Reprojects back to original CRS if the input was reprojected.
+    """
+    if not context.is_reprojected:
+        profile = context.profile.copy()
+        profile.update(dtype=dtm.dtype, nodata=context.nodata)
+        with rasterio.open(output_path, "w", **profile) as dst:
+            dst.write(dtm, 1)
+        return
+
+    print("Reprojecting DTM back to original CRS...")
+
+    # Destination array (Original dimensions)
+    orig_h, orig_w = context.original_shape
+    dtm_out = np.zeros((orig_h, orig_w), dtype=dtm.dtype)
+
+    reproject(
+        source=dtm,
+        destination=dtm_out,
+        src_transform=context.utm_transform,
+        src_crs=context.utm_crs,
+        dst_transform=context.original_transform,
+        dst_crs=context.original_crs,
+        resampling=Resampling.bilinear,
+        src_nodata=context.nodata,
+        dst_nodata=context.nodata,
+    )
+
+    out_profile = {
+        "driver": "GTiff",  # Default
+        "dtype": dtm.dtype,
+        "nodata": context.nodata,
+        "width": orig_w,
+        "height": orig_h,
+        "count": 1,
+        "crs": context.original_crs,
+        "transform": context.original_transform,
+    }
+
+    with rasterio.open(output_path, "w", **out_profile) as dst:
+        dst.write(dtm_out, 1)
+
+
 def main(
     dsm_path: str,
     out_dir: str,
@@ -355,115 +511,28 @@ def main(
     Automatically handles Geographic CRS by reprojecting to local UTM.
     """
     os.makedirs(out_dir, exist_ok=True)
-    temp_dir = os.path.join(out_dir, "temp_files")
-    os.makedirs(temp_dir, exist_ok=True)
+    # Ensure temp dir exists if used internally
+    # Keeping behavior consistent, though explicit temp file usage is reduced.
 
     output_name = os.path.splitext(os.path.basename(dsm_path))[0] + "_dtm.tif"
     dtm_path = os.path.join(out_dir, output_name)
 
-    with rasterio.open(dsm_path) as src:
-        # Check if reprojection is needed
-        reproject_needed = src.crs and src.crs.is_geographic
+    # 1. Load and Prepare
+    ctx = _load_dsm(dsm_path)
 
-        if reproject_needed:
-            print(f"Input is Geographic ({src.crs}). Reprojecting to UTM for processing...")
-            # Estimate UTM bucket from center of image
-            left, bottom, right, top = src.bounds
-            center_lon = (left + right) / 2
-            center_lat = (bottom + top) / 2
-            utm_crs = estimate_utm_crs(center_lon, center_lat)
-            print(f"Selected CRS: {utm_crs}")
-
-            # Calculate transform for UTM
-            transform, width, height = calculate_default_transform(src.crs, utm_crs, src.width, src.height, *src.bounds)
-
-            # Metadata for UTM in-memory raster
-            kwargs = src.meta.copy()
-            kwargs.update(
-                {
-                    "crs": utm_crs,
-                    "transform": transform,
-                    "width": width,
-                    "height": height,
-                    "nodata": src.nodata if src.nodata is not None else DEFAULT_NODATA,
-                }
-            )
-
-            # Reproject DSM to memory/temp array
-            # We can allocation numpy array destination
-            dsm_utm = np.zeros((height, width), dtype=np.float32)
-
-            reproject(
-                source=rasterio.band(src, 1),
-                destination=dsm_utm,
-                src_transform=src.transform,
-                src_crs=src.crs,
-                dst_transform=transform,
-                dst_crs=utm_crs,
-                resampling=Resampling.bilinear,
-                dst_nodata=kwargs["nodata"],
-            )
-
-            dsm = dsm_utm
-            # Effective resolution in UTM meters
-            # x_res = transform[0], y_res = -transform[4] (usually equal)
-            resolution = (transform[0], -transform[4])
-            nodata = kwargs["nodata"]
-
-        else:
-            dsm = src.read(1)
-            resolution = src.res
-            nodata = src.nodata if src.nodata is not None else DEFAULT_NODATA
-
-    # Generate DTM (Processing happening in Meters now)
+    # 2. Process
     dtm = dsm_to_dtm(
-        dsm,
-        resolution,
+        ctx.dsm,
+        ctx.resolution,
         kernel_radius_meters=kernel_radius_meters,
         slope=slope,
         initial_threshold=initial_threshold,
         max_threshold=max_threshold,
-        nodata=nodata,
+        nodata=ctx.nodata,
     )
 
-    if reproject_needed:
-        # Reproject DTM back to original CRS
-        print("Reprojecting DTM back to original CRS...")
-        with rasterio.open(dsm_path) as src:
-            src_profile = src.profile.copy()
-            src_profile.update(dtype=dtm.dtype, nodata=nodata)
-
-            # We need to reproject dtm (UTM) -> Output (Geo)
-            # define temporary UTM profile for DTM
-            dtm_utm_height, dtm_utm_width = dsm_utm.shape
-
-            # Destination array (Original dimensions)
-            dtm_out = np.zeros((src.height, src.width), dtype=dtm.dtype)
-
-            reproject(
-                source=dtm,
-                destination=dtm_out,
-                src_transform=transform,  # UTM transform
-                src_crs=utm_crs,
-                dst_transform=src.transform,  # Original transform
-                dst_crs=src.crs,
-                resampling=Resampling.bilinear,
-                src_nodata=nodata,
-                dst_nodata=nodata,
-            )
-
-        # Write Result
-        with rasterio.open(dtm_path, "w", **src_profile) as dst:
-            dst.write(dtm_out, 1)
-
-    else:
-        # standard write
-        with rasterio.open(dsm_path) as src:
-            profile = src.profile
-            profile.update(dtype=dtm.dtype, nodata=nodata)
-
-        with rasterio.open(dtm_path, "w", **profile) as dst:
-            dst.write(dtm, 1)
+    # 3. Save
+    _save_dtm(dtm, dtm_path, ctx)
 
     print(f"DTM generated at: {dtm_path}")
     return dtm_path
