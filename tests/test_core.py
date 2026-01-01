@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import rasterio
 
-from dsm2dtm import core
+from dsm2dtm import algorithm, core
 
 
 @pytest.fixture(scope="module")
@@ -50,7 +50,7 @@ def test_calculate_terrain_slope_flat():
     dsm = np.zeros((10, 10), dtype=np.float32)
     resolution = 1.0
     nodata = -9999.0
-    slope = core.calculate_terrain_slope(dsm, resolution, nodata)
+    slope = algorithm.calculate_terrain_slope(dsm, resolution, nodata)
     # Gradient is 0, median slope should be clamped to min (0.01)
     assert slope == 0.01
 
@@ -64,7 +64,7 @@ def test_calculate_terrain_slope_gradient():
     dsm = xv.astype(np.float32)  # z = x
     resolution = 1.0
     nodata = -9999.0
-    slope = core.calculate_terrain_slope(dsm, resolution, nodata)
+    slope = algorithm.calculate_terrain_slope(dsm, resolution, nodata)
     # Expected: dx=1, dy=0. Slope = sqrt(1^2 + 0^2) = 1.0
     # Allow some floating point tolerance
     assert abs(slope - 1.0) < 1e-4
@@ -77,16 +77,16 @@ def test_calculate_terrain_slope_nodata():
     # Set half to nodata
     dsm[:, 5:] = nodata
     resolution = 1.0
-    slope = core.calculate_terrain_slope(dsm, resolution, nodata)
+    slope = algorithm.calculate_terrain_slope(dsm, resolution, nodata)
     assert slope == 0.01
 
 
 def test_get_adaptive_parameters():
     """Test parameter scaling based on resolution."""
     # Test 1m resolution
-    params_1m = core.get_adaptive_parameters(resolution=1.0)
+    params_1m = algorithm.get_adaptive_parameters(resolution=1.0)
     # Test 0.5m resolution (pixels should be approx double the 1m values for window sizes)
-    params_05m = core.get_adaptive_parameters(resolution=0.5)
+    params_05m = algorithm.get_adaptive_parameters(resolution=0.5)
     # Window size in pixels should increase as resolution gets finer (smaller meters/pixel)
     assert params_05m.pmf_initial_window >= params_1m.pmf_initial_window
     assert abs(params_05m.pmf_slope - 0.5 * params_1m.pmf_slope) < 1e-6
@@ -99,7 +99,7 @@ def test_progressive_morphological_filter_basic():
     # Add a building: 4x4 square at z=20 in the center
     dsm[8:12, 8:12] = 20.0
     nodata = -9999.0
-    ground = core.progressive_morphological_filter(
+    ground = algorithm.progressive_morphological_filter(
         dsm,
         nodata,
         initial_window=3,
@@ -119,7 +119,7 @@ def test_refine_ground_surface():
     nodata = -9999.0
     # Add a single pixel spike that PMF might have missed or created
     ground[5, 5] = 15.0
-    refined = core.refine_ground_surface(ground, nodata, smoothen_radius=1.0, elevation_threshold=2.0)
+    refined = algorithm.refine_ground_surface(ground, nodata, smoothen_radius=1.0, elevation_threshold=2.0)
     assert refined[5, 5] == nodata
     assert refined[0, 0] == 10.0
 
@@ -133,7 +133,7 @@ def test_dsm_to_dtm_integration_small():
     # Add a 'building'
     dsm[30:35, 30:35] = 120.0
     resolution = (1.0, 1.0)  # 1m resolution
-    dtm = core.dsm_to_dtm(dsm, resolution, kernel_radius_meters=10.0, slope=0.1)
+    dtm = algorithm.dsm_to_dtm(dsm, resolution, kernel_radius_meters=10.0, slope=0.1)
     assert dtm[10, 10] < 105.0
     # Building center
     assert dtm[32, 32] < 110.0
