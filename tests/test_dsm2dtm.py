@@ -3,7 +3,7 @@ import os
 import pytest
 import rasterio
 
-from src.dsm2dtm import core as dsm2dtm
+from dsm2dtm import core
 
 
 @pytest.fixture(scope="module")
@@ -21,7 +21,7 @@ def test_dsm_to_dtm_array(dsm_path):
         resolution = src.res
         nodata = src.nodata if src.nodata is not None else -99999.0
 
-    dtm = dsm2dtm.dsm_to_dtm(dsm, resolution, kernel_radius=20, nodata=nodata)
+    dtm = core.dsm_to_dtm(dsm, resolution, nodata=nodata)
 
     assert dtm.shape == dsm.shape
     # DTM should be <= DSM (ground is below surface)
@@ -31,7 +31,7 @@ def test_dsm_to_dtm_array(dsm_path):
 
 def test_main_function(dsm_path, tmp_path):
     """Test the main entry point function end-to-end."""
-    dtm_path = dsm2dtm.main(dsm_path, str(tmp_path), kernel_radius=20)
+    dtm_path = core.main(dsm_path, str(tmp_path))
 
     assert os.path.isfile(dtm_path)
     assert dtm_path.endswith(".tif")
