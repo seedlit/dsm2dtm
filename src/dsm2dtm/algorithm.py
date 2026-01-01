@@ -14,6 +14,7 @@ from rasterio.warp import Resampling, reproject
 from scipy.ndimage import gaussian_filter, grey_opening, zoom
 
 from dsm2dtm.constants import (
+    DEFAULT_NODATA,
     FINAL_SMOOTH_SIGMA_METERS,
     GAP_FILL_MAX_SEARCH_DISTANCE_METERS,
     GAP_FILL_SMOOTHING_ITERATIONS,
@@ -25,7 +26,6 @@ from dsm2dtm.constants import (
     PMF_SLOPE,
     REFINEMENT_ELEVATION_THRESHOLD,
     REFINEMENT_SMOOTH_SIGMA_METERS,
-    DEFAULT_NODATA,
 )
 
 
