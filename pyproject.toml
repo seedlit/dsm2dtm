@@ -27,6 +27,7 @@ dependencies = [
     "rasterio",
     "scipy",
     "scikit-image",
+    "pyproj",
 ]
 
 [project.urls]
