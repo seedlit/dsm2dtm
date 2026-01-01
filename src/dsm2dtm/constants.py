@@ -16,12 +16,8 @@ PMF_INITIAL_THRESHOLD = 0.1  # Meters
 PMF_MAX_THRESHOLD = 20.0  # Meters - Relaxed for steep terrain
 
 # Smoothing Refinement Parameters
-# We use meters for smoothing sigma to ensure consistent object removal across resolutions.
-# A value of 5.0m - 10.0m is typically good for removing buildings/trees.
 REFINEMENT_SMOOTH_SIGMA_METERS = 5.0
-REFINEMENT_ELEVATION_THRESHOLD = 1.0  # Slightly relaxed from 0.8 to 1.0 for robustness
-
-# Final Smoothing Parameters
+REFINEMENT_ELEVATION_THRESHOLD = 1.0
 FINAL_SMOOTH_SIGMA_METERS = 0.5
 
 # Processing Resolution

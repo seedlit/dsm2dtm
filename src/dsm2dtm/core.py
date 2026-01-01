@@ -61,8 +61,6 @@ def calculate_terrain_slope(dsm: NDArray[np.floating], resolution: float, nodata
 
     if current_res < (target_res * 0.5):
         scale_factor = current_res / target_res
-        # Zoom using order 0 (nearest) or 1 (bilinear) - 1 is smoother
-        # We handle nodata by masking
         dsm_for_slope = zoom(dsm, scale_factor, order=1)
         res_for_slope = target_res
     else:
@@ -77,27 +75,16 @@ def calculate_terrain_slope(dsm: NDArray[np.floating], resolution: float, nodata
     if dsm_for_slope.shape[0] < 2 or dsm_for_slope.shape[1] < 2:
         return PMF_SLOPE
 
-    # Use numpy gradient
     dy, dx = np.gradient(dsm_for_slope)
-
-    # Calculate magnitude of slope per pixel
     slope_per_pixel = np.sqrt(dy**2 + dx**2)
-
-    # Convert to rise/run (dimensionless)
     slope_dimensionless = slope_per_pixel / res_for_slope
-
-    # Filter valid
     valid_slopes = slope_dimensionless[valid_mask]
-
     if len(valid_slopes) == 0:
         return PMF_SLOPE
-
     # Use Median instead of Mean for robustness against outliers (vertical walls)
     median_slope = np.nanmedian(valid_slopes)
-
     # Clamp to reasonable bounds
     median_slope = max(0.01, min(median_slope, 1.0))
-
     return float(median_slope)
 
 
@@ -109,13 +96,11 @@ def get_adaptive_parameters(
     """
     # Avoid division by zero
     res_meters = max(resolution, 0.001)
-
     # 1. PMF Window Sizes (Pixels)
     init_window = int(PMF_INITIAL_WINDOW_METERS / res_meters)
     if init_window % 2 == 0:
         init_window += 1
     init_window = max(3, init_window)
-
     max_window_target = int(PMF_MAX_WINDOW_METERS / res_meters)
 
     limit = max_image_dimension
@@ -125,19 +110,10 @@ def get_adaptive_parameters(
     max_window = min(max_window_target, limit)
     if max_window % 2 == 0:
         max_window -= 1
-
     max_window = max(init_window, max_window)
-
-    # 2. PMF Slope (Meters per Pixel)
-    # base_slope is rise/run.
     pmf_slope = base_slope * res_meters
-
-    # 3. Smoothing Sigmas (Pixels)
-    # We maintain constant physical smoothing size (meters)
     refine_sigma = REFINEMENT_SMOOTH_SIGMA_METERS / res_meters
     final_sigma = FINAL_SMOOTH_SIGMA_METERS / res_meters
-
-    # 4. Gap Fill Distance (Pixels)
     gap_dist = GAP_FILL_MAX_SEARCH_DISTANCE_METERS / res_meters
 
     return AdaptiveParameters(
@@ -163,13 +139,10 @@ def progressive_morphological_filter(
     Progressive Morphological Filter (PMF).
     """
     valid_mask = surface != nodata
-
     if not np.any(valid_mask):
         return surface.copy()
-
     min_val = np.min(surface[valid_mask])
     working = np.where(valid_mask, surface, min_val)
-
     # Use adapted initial window size
     window_size = initial_window
     while window_size <= max_window:
@@ -202,21 +175,14 @@ def refine_ground_surface(
     from a smoothed version of the surface.
     """
     valid_mask = ground != nodata
-
     if not np.any(valid_mask):
         return ground.copy()
-
     min_val = np.min(ground[valid_mask])
-
-    # Create smoothed surface
     smooth_input = np.where(ground == nodata, min_val, ground)
     smoothed = gaussian_filter(smooth_input, sigma=smoothen_radius)
-
-    # Calculate difference and apply threshold
     diff = ground - smoothed
     refined = ground.copy()
     refined[(diff >= elevation_threshold) & valid_mask] = nodata
-
     return refined
 
 
@@ -238,7 +204,6 @@ def dsm_to_dtm(
     cell_size = max(cell_size, 0.001)  # Avoid zero
 
     # Check if we should process at a coarser resolution
-    # If cell_size is significantly smaller than MIN_PROCESSING_RESOLUTION_METERS
     if cell_size < (MIN_PROCESSING_RESOLUTION_METERS * 0.9):
         target_res = MIN_PROCESSING_RESOLUTION_METERS
 
@@ -321,6 +286,9 @@ def dsm_to_dtm(
     # Override max window if kernel_radius_meters provided
     if kernel_radius_meters is not None:
         if cell_size < 0.01:
+            # Fallback for un-projected Degree data (Lat/Lon).
+            # Note: This ignores longitude convergence (cos(lat)) and is inaccurate away from Equator.
+            # Best practice: Reproject to UTM before calling this function (as main() does).
             res_meters = cell_size * 111320.0
         else:
             res_meters = cell_size
