@@ -1,6 +1,6 @@
 """Generate DTM (Digital Terrain Model) from DSM (Digital Surface Model)"""
 
-from .core import main
+from .core import generate_dtm, save_dtm
 
-__all__ = ["main"]
-__version__ = "0.2.0"
+__all__ = ["generate_dtm", "save_dtm"]
+__version__ = "0.3.0"

@@ -15,14 +15,16 @@ def dsm_path():
     return path
 
 
-def test_main_numerical_properties(dsm_path):
+def test_generate_dtm_numerical_properties(dsm_path):
     """Verify numerical properties of the generated DTM."""
     with rasterio.open(dsm_path) as src:
         dsm = src.read(1)
 
-    dtm_path = core.main(dsm_path, "temp_data")
-    with rasterio.open(dtm_path) as src:
-        dtm = src.read(1)
+    # Call generate_dtm directly (returns array and profile)
+    dtm, profile = core.generate_dtm(dsm_path)
+
+    assert isinstance(dtm, np.ndarray)
+    assert isinstance(profile, dict)
 
     assert np.mean(dtm) <= np.mean(dsm)
     assert np.max(dtm) <= np.max(dsm)
@@ -32,16 +34,22 @@ def test_main_numerical_properties(dsm_path):
     # TODO handle nodata
 
 
-def test_main_function(dsm_path, tmp_path):
-    """Test the main entry point function end-to-end."""
-    dtm_path = core.main(dsm_path, str(tmp_path))
+def test_full_pipeline_save(dsm_path, tmp_path):
+    """Test the full pipeline: generate -> save."""
+    dtm_path = str(tmp_path / "output_dtm.tif")
+
+    # 1. Generate
+    dtm, profile = core.generate_dtm(dsm_path)
+
+    # 2. Save
+    core.save_dtm(dtm, profile, dtm_path)
+
     assert os.path.isfile(dtm_path)
-    assert dtm_path.endswith(".tif")
     with rasterio.open(dtm_path) as src:
         assert src.count == 1
         dtm_array = src.read(1)
-        assert dtm_array.shape[0] > 0
-        assert dtm_array.shape[1] > 0
+        assert dtm_array.shape == dtm.shape
+        assert dtm_array.dtype == dtm.dtype
 
 
 def test_calculate_terrain_slope_flat():
