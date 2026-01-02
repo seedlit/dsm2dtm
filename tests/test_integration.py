@@ -29,9 +29,10 @@ def calculate_metrics(predicted: np.ndarray, actual: np.ndarray, nodata: float =
     [
         ("dsm_1m_istanbul_hilly_urban.tif", "dtm_1m_istanbul_hilly_urban.tif", 5.0),
         ("dsm_50cm_river_and_urban.tif", "dtm_50cm_river_and_urban.tif", 5.0),
-        ("dsm_50cm_vegetaion_urban.tif", "dtm_50cm_vegetation_urban.tif", 10.0),
+        ("dsm_50cm_vegetaion_urban.tif", "dtm_50cm_vegetation_urban.tif", 8.0),
     ],
 )
+# TODO: look at why RMSE is so high?
 def test_integration_accuracy(test_data_dir, dsm_name, gt_name, expected_rmse):
     """
     Run full pipeline and compare against Ground Truth DTM.
