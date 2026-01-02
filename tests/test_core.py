@@ -1,49 +1,64 @@
 import os
+from collections.abc import Mapping
 
 import numpy as np
 import pytest
 import rasterio
+from rasterio.transform import from_origin
 
 from dsm2dtm import algorithm, core
 
 
-@pytest.fixture(scope="module")
-def dsm_path():
-    path = "data/test_dsm.tif"
-    if not os.path.exists(path):
-        pytest.fail(f"Test data not found at {path}")
-    return path
+@pytest.fixture
+def synthetic_dsm_path(tmp_path):
+    """
+    Creates a synthetic DSM file for testing.
+    Scenario: 100x100 flat ground at elev=100.0 with a few objects.
+    """
+    path = tmp_path / "synthetic_dsm.tif"
+    height, width = 100, 100
+    data = np.full((height, width), 100.0, dtype=np.float32)
+    # Add a "building"
+    data[40:60, 40:60] = 120.0
+    # Add "trees" (spikes)
+    data[10, 10] = 115.0
+    transform = from_origin(500000, 4000000, 1.0, 1.0)  # UTM-like
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=1,
+        dtype=data.dtype,
+        crs="EPSG:32631",
+        transform=transform,
+        nodata=-9999.0,
+    ) as dst:
+        dst.write(data, 1)
+    return str(path)
 
 
-def test_generate_dtm_numerical_properties(dsm_path):
-    """Verify numerical properties of the generated DTM."""
-    with rasterio.open(dsm_path) as src:
-        dsm = src.read(1)
-
-    # Call generate_dtm directly (returns array and profile)
-    dtm, profile = core.generate_dtm(dsm_path)
-
+def test_generate_dtm_numerical_properties(synthetic_dsm_path):
+    """Verify numerical properties of the generated DTM using synthetic data."""
+    dtm, profile = core.generate_dtm(synthetic_dsm_path)
     assert isinstance(dtm, np.ndarray)
-    assert isinstance(profile, dict)
+    assert isinstance(profile, Mapping)
+    assert dtm.shape == (100, 100)
+    assert dtm.shape == (100, 100)
+    # Building area (center) should be removed (i.e., < 120.0, close to 100.0)
+    center_val = dtm[50, 50]
+    assert center_val < 110.0, f"Building not removed, elev={center_val}"
+    assert abs(center_val - 100.0) < 2.0, "Ground not restored correctly"
+    # Corner (ground) should stay ~100.0
+    assert abs(dtm[0, 0] - 100.0) < 0.5
 
-    assert np.mean(dtm) <= np.mean(dsm)
-    assert np.max(dtm) <= np.max(dsm)
-    assert round(np.mean(dtm), 1) == 58.8
-    assert round(np.max(dtm), 1) == 60.6
-    assert round(np.min(dtm), 1) == 0.0
-    # TODO handle nodata
 
-
-def test_full_pipeline_save(dsm_path, tmp_path):
+def test_full_pipeline_save(synthetic_dsm_path, tmp_path):
     """Test the full pipeline: generate -> save."""
     dtm_path = str(tmp_path / "output_dtm.tif")
-
-    # 1. Generate
-    dtm, profile = core.generate_dtm(dsm_path)
-
-    # 2. Save
+    dtm, profile = core.generate_dtm(synthetic_dsm_path)
     core.save_dtm(dtm, profile, dtm_path)
-
     assert os.path.isfile(dtm_path)
     with rasterio.open(dtm_path) as src:
         assert src.count == 1
@@ -91,11 +106,8 @@ def test_calculate_terrain_slope_nodata():
 
 def test_get_adaptive_parameters():
     """Test parameter scaling based on resolution."""
-    # Test 1m resolution
     params_1m = algorithm.get_adaptive_parameters(resolution=1.0)
-    # Test 0.5m resolution (pixels should be approx double the 1m values for window sizes)
     params_05m = algorithm.get_adaptive_parameters(resolution=0.5)
-    # Window size in pixels should increase as resolution gets finer (smaller meters/pixel)
     assert params_05m.pmf_initial_window >= params_1m.pmf_initial_window
     assert abs(params_05m.pmf_slope - 0.5 * params_1m.pmf_slope) < 1e-6
 
@@ -151,14 +163,12 @@ def test_dsm_to_dtm_integration_small():
 
 def test_dsm_context_loading(tmp_path):
     """Test _load_dsm handles a mock file."""
-    # Create a dummy GTiff
     import rasterio
     from rasterio.transform import from_origin
 
     dsm_path = tmp_path / "test.tif"
     arr = np.zeros((10, 10), dtype=np.float32)
     transform = from_origin(500000, 4000000, 1, 1)
-
     with rasterio.open(
         dsm_path,
         "w",

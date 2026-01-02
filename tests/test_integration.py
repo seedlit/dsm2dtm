@@ -7,7 +7,6 @@ from dsm2dtm.core import generate_dtm
 
 def calculate_metrics(predicted: np.ndarray, actual: np.ndarray, nodata: float = -9999.0):
     """Calculate RMSE, MAE, and Bias between predicted and actual arrays."""
-    # Mask invalid data in either
     mask = (predicted != nodata) & (actual != nodata)
     if not np.any(mask):
         return None
@@ -49,10 +48,6 @@ def test_integration_accuracy(test_data_dir, dsm_name, gt_name, expected_rmse):
     print(f"  MAE:  {metrics['mae']:.4f} m")
     print(f"  Bias: {metrics['bias']:.4f} m")
     print(f"  Pixels: {metrics['count']}")
-    # 4. Assertions
-    # We use a relatively loose RMSE threshold initially because:
-    # a) The algorithm parameters (slope, radius) are defaults and might not be optimal for all scenes.
-    # b) "Ground Truth" DTMs might have different generation methods/artifacts.
     assert metrics["rmse"] < expected_rmse, f"RMSE {metrics['rmse']:.2f} exceeds threshold {expected_rmse}"
 
 
