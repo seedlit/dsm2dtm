@@ -7,12 +7,13 @@ Author: Naman Jain
 import argparse
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 import rasterio
 from numpy.typing import NDArray
 from rasterio.crs import CRS
+from rasterio.io import DatasetReader
 from rasterio.transform import Affine
 from rasterio.warp import Resampling, calculate_default_transform, reproject
 
@@ -42,76 +43,80 @@ class DSMContext:
     utm_transform: Optional[Affine] = None
 
 
-def _load_dsm(dsm_path: str) -> DSMContext:
+def _create_context_from_src(src: DatasetReader) -> DSMContext:
     """
-    Load a DSM file and prepare it for processing.
-    If the input DSM uses a Geographic CRS (e.g., Lat/Lon), it is automatically
-    reprojected to an appropriate local UTM zone to ensure accurate metric calculations.
-
-    Args:
-        dsm_path (str): The file path to the DSM.
-
-    Returns:
-        DSMContext: A context object containing the loaded DSM data and metadata.
+    Internal helper to create DSMContext from an open rasterio dataset.
     """
-    with rasterio.open(dsm_path) as src:
-        is_geographic = src.crs and src.crs.is_geographic
-        nodata = src.nodata if src.nodata is not None else DEFAULT_NODATA
+    is_geographic = src.crs and src.crs.is_geographic
+    nodata = src.nodata if src.nodata is not None else DEFAULT_NODATA
 
-        if not is_geographic:
-            return DSMContext(
-                dsm=src.read(1),
-                profile=src.profile,
-                nodata=nodata,
-                resolution=src.res,
-                is_reprojected=False,
-                original_shape=(src.height, src.width),
-            )
-
-        print(f"Input is Geographic ({src.crs}). Reprojecting to UTM for processing...")
-        left, bottom, right, top = src.bounds
-        center_lon = (left + right) / 2
-        center_lat = (bottom + top) / 2
-        utm_crs = estimate_utm_crs(center_lon, center_lat)
-        print(f"Selected CRS: {utm_crs}")
-
-        transform, width, height = calculate_default_transform(src.crs, utm_crs, src.width, src.height, *src.bounds)
-
-        dsm_utm = np.zeros((height, width), dtype=np.float32)
-        reproject(
-            source=rasterio.band(src, 1),
-            destination=dsm_utm,
-            src_transform=src.transform,
-            src_crs=src.crs,
-            dst_transform=transform,
-            dst_crs=utm_crs,
-            resampling=Resampling.bilinear,
-            dst_nodata=nodata,
-        )
-
-        profile = src.profile.copy()
-        profile.update(
-            {
-                "crs": utm_crs,
-                "transform": transform,
-                "width": width,
-                "height": height,
-                "nodata": nodata,
-            }
-        )
-
+    if not is_geographic:
         return DSMContext(
-            dsm=dsm_utm,
-            profile=profile,
+            dsm=src.read(1),
+            profile=src.profile,
             nodata=nodata,
-            resolution=(transform[0], -transform[4]),
-            is_reprojected=True,
-            original_crs=src.crs,
-            original_transform=src.transform,
+            resolution=src.res,
+            is_reprojected=False,
             original_shape=(src.height, src.width),
-            utm_crs=utm_crs,
-            utm_transform=transform,
         )
+
+    print(f"Input is Geographic ({src.crs}). Reprojecting to UTM for processing...")
+    left, bottom, right, top = src.bounds
+    center_lon = (left + right) / 2
+    center_lat = (bottom + top) / 2
+    utm_crs = estimate_utm_crs(center_lon, center_lat)
+    print(f"Selected CRS: {utm_crs}")
+
+    transform, width, height = calculate_default_transform(src.crs, utm_crs, src.width, src.height, *src.bounds)
+
+    dsm_utm = np.zeros((height, width), dtype=np.float32)
+    reproject(
+        source=rasterio.band(src, 1),
+        destination=dsm_utm,
+        src_transform=src.transform,
+        src_crs=src.crs,
+        dst_transform=transform,
+        dst_crs=utm_crs,
+        resampling=Resampling.bilinear,
+        dst_nodata=nodata,
+    )
+
+    profile = src.profile.copy()
+    profile.update(
+        {
+            "crs": utm_crs,
+            "transform": transform,
+            "width": width,
+            "height": height,
+            "nodata": nodata,
+        }
+    )
+
+    return DSMContext(
+        dsm=dsm_utm,
+        profile=profile,
+        nodata=nodata,
+        resolution=(transform[0], -transform[4]),
+        is_reprojected=True,
+        original_crs=src.crs,
+        original_transform=src.transform,
+        original_shape=(src.height, src.width),
+        utm_crs=utm_crs,
+        utm_transform=transform,
+    )
+
+
+def _load_dsm(dsm_input: Union[str, DatasetReader]) -> DSMContext:
+    """
+    Load DSM context from a file path or an open rasterio dataset.
+    """
+    # Check if input is a path (str or PathLike)
+    if isinstance(dsm_input, (str, os.PathLike)):
+        with rasterio.open(dsm_input) as src:
+            return _create_context_from_src(src)
+    else:
+        # Assume it is an open rasterio dataset
+        return _create_context_from_src(dsm_input)
 
 
 def _prepare_output(dtm: NDArray[np.floating], context: DSMContext) -> Tuple[NDArray[np.floating], Dict[str, Any]]:
@@ -176,20 +181,20 @@ def save_dtm(dtm: NDArray[np.floating], profile: Dict[str, Any], output_path: st
 
 
 def generate_dtm(
-    dsm_path: str,
+    dsm_input: Union[str, DatasetReader],
     kernel_radius_meters: float = DEFAULT_KERNEL_RADIUS_METERS,
     slope: Optional[float] = None,
     initial_threshold: float = PMF_INITIAL_THRESHOLD,
     max_threshold: float = PMF_MAX_THRESHOLD,
 ) -> Tuple[NDArray[np.floating], Dict[str, Any]]:
     """
-    Generate a DTM from a DSM file.
+    Generate a DTM from a DSM (file path or rasterio dataset).
 
     This function handles loading, optional reprojection (to UTM for processing),
     DTM generation, and reprojection back to the original CRS.
 
     Args:
-        dsm_path (str): Path to the input DSM file.
+        dsm_input (Union[str, rasterio.io.DatasetReader]): Input DSM file path or open rasterio dataset.
         kernel_radius_meters (float, optional): Kernel radius for PMF in meters.
             Defaults to DEFAULT_KERNEL_RADIUS_METERS.
         slope (Optional[float], optional): Terrain slope. If None, calculated from data. Defaults to None.
@@ -200,7 +205,7 @@ def generate_dtm(
         Tuple[NDArray, Dict]: A tuple containing the DTM numpy array and the rasterio profile (metadata).
     """
     # 1. Load and Prepare (Reproject to UTM if needed)
-    ctx = _load_dsm(dsm_path)
+    ctx = _load_dsm(dsm_input)
 
     # 2. Process
     dtm_utm = dsm_to_dtm(

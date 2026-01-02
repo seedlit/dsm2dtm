@@ -185,3 +185,15 @@ def test_dsm_context_loading(tmp_path):
     assert ctx.is_reprojected is False
     assert ctx.dsm.shape == (10, 10)
     assert ctx.resolution[0] == 1.0
+
+
+def test_generate_dtm_with_object(synthetic_dsm_path):
+    """Test generating DTM from an open rasterio dataset object."""
+    with rasterio.open(synthetic_dsm_path) as src:
+        # Pass the object instead of path
+        dtm, profile = core.generate_dtm(src)
+
+        assert isinstance(dtm, np.ndarray)
+        assert dtm.shape == (src.height, src.width)
+        # Check basic property to ensure it actually ran
+        assert abs(dtm[0, 0] - 100.0) < 0.5
