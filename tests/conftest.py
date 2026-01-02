@@ -25,16 +25,3 @@ def test_data_dir():
     if not paths:
         pytest.fail("Downloaded archive appears to be empty.")
     return Path(paths[0]).parent
-
-
-@pytest.fixture(scope="session")
-def real_dsm_path(test_data_dir):
-    """
-    Finds the DSM file within the downloaded test data.
-    Adjust the filename 'test_dsm.tif' if the zip contains something else.
-    """
-    tiffs = list(test_data_dir.rglob("*.tif"))
-    if not tiffs:
-        pytest.fail(f"No .tif files found in downloaded test data at {test_data_dir}")
-    # TODO: we will return all paths and run in a loop
-    return str(tiffs[0])

@@ -2,58 +2,73 @@ import numpy as np
 import pytest
 import rasterio
 
-from dsm2dtm.core import generate_dtm, save_dtm
+from dsm2dtm.core import generate_dtm
 
 
-def test_integration_real_data(real_dsm_path, tmp_path):
+def calculate_metrics(predicted: np.ndarray, actual: np.ndarray, nodata: float = -9999.0):
+    """Calculate RMSE, MAE, and Bias between predicted and actual arrays."""
+    # Mask invalid data in either
+    mask = (predicted != nodata) & (actual != nodata)
+
+    if not np.any(mask):
+        return None
+
+    p = predicted[mask]
+    a = actual[mask]
+
+    diff = p - a
+    rmse = np.sqrt(np.mean(diff**2))
+    mae = np.mean(np.abs(diff))
+    bias = np.mean(diff)
+
+    return {"rmse": rmse, "mae": mae, "bias": bias, "count": np.sum(mask)}
+
+
+@pytest.mark.parametrize(
+    "dsm_name, gt_name, expected_rmse",
+    [
+        ("dsm_1m_istanbul_hilly_urban.tif", "dtm_1m_istanbul_hilly_urban.tif", 5.0),
+        ("dsm_50cm_river_and_urban.tif", "dtm_50cm_river_and_urban.tif", 5.0),
+        ("dsm_50cm_vegetaion_urban.tif", "dtm_50cm_vegetation_urban.tif", 10.0),
+    ],
+)
+def test_integration_accuracy(test_data_dir, dsm_name, gt_name, expected_rmse):
     """
-    Run the full pipeline on a real-world DSM downloaded from GitHub.
-    This ensures the code works on realistic data distributions and sizes.
+    Run full pipeline and compare against Ground Truth DTM.
     """
-    print(f"Running integration test on: {real_dsm_path}")
+    dsm_path = str(test_data_dir / dsm_name)
+    gt_path = str(test_data_dir / gt_name)
 
-    # 1. Run Generation
-    # Use default parameters for now
-    dtm, profile = generate_dtm(real_dsm_path)
+    print(f"\nProcessing: {dsm_name} -> Comparing with: {gt_name}")
 
-    # 2. Basic Sanity Checks
-    assert isinstance(dtm, np.ndarray)
-    assert dtm.ndim == 2
-    assert profile["count"] == 1
+    # 1. Generate DTM
+    dtm_pred, profile = generate_dtm(dsm_path)
 
-    # Check dimensions match input
-    with rasterio.open(real_dsm_path) as src:
-        assert dtm.shape == (src.height, src.width)
-        dsm_data = src.read(1)
-        nodata = src.nodata if src.nodata is not None else -9999.0
+    # 2. Load Ground Truth
+    with rasterio.open(gt_path) as src:
+        dtm_gt = src.read(1)
+        gt_nodata = src.nodata if src.nodata is not None else -9999.0
 
-    # 3. Value Checks
-    # DTM should generally be <= DSM (it's bare earth)
-    # Ignore nodata
-    valid_mask = (dsm_data != nodata) & (dtm != nodata)
+        # Ensure dimensions match
+        if dtm_pred.shape != dtm_gt.shape:
+            # If shapes differ slightly due to different processing/cropping in creation,
+            # we might need to crop or reproject.
+            # For this test data, we assume they are pixel-aligned pairs.
+            pytest.fail(f"Dimension mismatch! Pred: {dtm_pred.shape}, GT: {dtm_gt.shape}")
 
-    if np.any(valid_mask):
-        # Allow small tolerance for smoothing effects where DTM > DSM slightly
-        # But generally DTM <= DSM.
-        # Let's count how many pixels are significantly higher
-        diff = dtm[valid_mask] - dsm_data[valid_mask]
+    # 3. Compare
+    metrics = calculate_metrics(dtm_pred, dtm_gt, nodata=gt_nodata)
 
-        # We expect DTM <= DSM. So diff <= 0.
-        # Positive diff implies DTM is above ground surface (bad, but happens with smoothing).
-        # Check that 99% of points are not drastically above DSM
-        high_points = np.sum(diff > 0.5)  # Points more than 50cm above DSM
-        total_points = np.sum(valid_mask)
-        fraction_bad = high_points / total_points
+    assert metrics is not None, "No valid overlapping pixels found."
 
-        assert fraction_bad < 0.05, f"Too many DTM points are significantly higher than DSM ({fraction_bad:.1%})"
+    print(f"Metrics for {dsm_name}:")
+    print(f"  RMSE: {metrics['rmse']:.4f} m")
+    print(f"  MAE:  {metrics['mae']:.4f} m")
+    print(f"  Bias: {metrics['bias']:.4f} m")
+    print(f"  Pixels: {metrics['count']}")
 
-        print(f"Integration Test Stats: Processed {total_points} valid pixels.")
-        print(f"Max Elevation: {np.max(dtm[valid_mask]):.2f}m")
-        print(f"Mean Elevation: {np.mean(dtm[valid_mask]):.2f}m")
-    else:
-        pytest.fail("Resulting DTM has no valid data overlap with DSM.")
-
-    # 4. Save check (optional, just to ensure save_dtm works with this profile)
-    out_file = tmp_path / "integration_result.tif"
-    save_dtm(dtm, profile, str(out_file))
-    assert out_file.exists()
+    # 4. Assertions
+    # We use a relatively loose RMSE threshold initially because:
+    # a) The algorithm parameters (slope, radius) are defaults and might not be optimal for all scenes.
+    # b) "Ground Truth" DTMs might have different generation methods/artifacts.
+    assert metrics["rmse"] < expected_rmse, f"RMSE {metrics['rmse']:.2f} exceeds threshold {expected_rmse}"
