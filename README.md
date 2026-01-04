@@ -6,7 +6,9 @@
 
 [![CI](https://github.com/seedlit/dsm2dtm/actions/workflows/ci.yml/badge.svg)](https://github.com/seedlit/dsm2dtm/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/dsm2dtm)](https://pypi.org/project/dsm2dtm/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/dsm2dtm)](https://pypi.org/project/dsm2dtm/)
 [![Conda Forge](https://img.shields.io/conda/vn/conda-forge/dsm2dtm)](https://anaconda.org/conda-forge/dsm2dtm)
+[![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/dsm2dtm)](https://anaconda.org/conda-forge/dsm2dtm)
 [![License](https://img.shields.io/github/license/seedlit/dsm2dtm?style=flat-square)](LICENSE)
 
 `dsm2dtm` is a robust, python library for extracting bare earth Digital Terrain Models (DTM) from Digital Surface Models (DSM). It effectively removes non-ground features like buildings, vegetation, and cars, leaving only the underlying terrain.
