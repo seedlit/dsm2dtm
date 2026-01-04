@@ -228,7 +228,15 @@ def main_cli() -> None:
     parser.add_argument("--dsm", help="Path to the DSM file", required=True)
     parser.add_argument("--out_dir", help="Directory to save the output DTM", default="generated_dtm")
     parser.add_argument(
-        "--radius", type=float, default=DEFAULT_KERNEL_RADIUS_METERS, help="Window radius in meters (default: 40.0)"
+        "--radius",
+        type=float,
+        default=DEFAULT_KERNEL_RADIUS_METERS,
+        help=(
+            "Window radius for the morphological filter in meters. "
+            "Objects larger than 2x this radius will NOT be removed. "
+            "Set this to slightly larger than half the width of the largest building. "
+            "(default: 40.0)"
+        ),
     )
     parser.add_argument(
         "--slope", type=float, default=None, help="Terrain slope (0-1). If not provided, computed from DSM."
