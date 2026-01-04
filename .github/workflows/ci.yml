@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: uv sync --locked --all-extras --dev
+
+    - name: Run Ruff Lint
+      run: uv run ruff check .
+
+    - name: Run Ruff Format Check
+      run: uv run ruff format --check .
+
+    - name: Run Tests
+      run: uv run pytest
+
+    - name: Smoke Test CLI
+      run: |
+        # 1. Create dummy input (small 10x10 synthetic raster)
+        uv run python -c "
+        import numpy as np
+        import rasterio
+        from rasterio.transform import from_origin
+        data = np.full((10,10), 100.0, dtype='float32')
+        with rasterio.open('dummy.tif', 'w', driver='GTiff', height=10, width=10, count=1, dtype=data.dtype, crs='EPSG:32631', transform=from_origin(0,0,1,1)) as dst:
+            dst.write(data, 1)
+        "
+
+        # 2. Run CLI
+        uv run dsm2dtm --dsm dummy.tif --out_dir smoke_test_out
+
+        # 3. Verify Output Exists
+        ls smoke_test_out/dummy_dtm.tif
+
+    - name: Smoke Test Library API
+      run: |
+        uv run python -c "
+        from dsm2dtm import generate_dtm
+        print('Successfully imported dsm2dtm library')
+
+        # Run on the dummy file created in the previous step
+        dtm, profile = generate_dtm('dummy.tif')
+
+        assert dtm.shape == (10, 10)
+        print('Library function execution successful')
+        "

@@ -131,3 +131,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+REFACTOR_PLAN.md
+
+generated_dtm
+results
+test_results
+
+temp.md
+temp.py
+temp_data

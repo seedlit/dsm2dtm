@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dsm2dtm"
+version = "0.3.0"
+authors = [
+    { name="Naman Jain", email="naman.jain@btech2015.iitgn.ac.in" },
+]
+description = "Generate DTM (Digital Terrain Model) from DSM (Digital Surface Model)"
+readme = "README.md"
+requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Development Status :: 4 - Beta",
+]
+dependencies = [
+    "numpy",
+    "rasterio",
+    "scipy",
+    "scikit-image",
+    "pyproj",
+]
+
+[project.urls]
+Homepage = "https://github.com/seedlit/dsm2dtm"
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+dev = [
+    "ruff",
+    "mypy",
+    "pre-commit",
+    "pooch",
+]
+
+[project.scripts]
+dsm2dtm = "dsm2dtm.core:main_cli"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+mypy_path = "src"

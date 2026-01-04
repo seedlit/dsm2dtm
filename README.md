@@ -1,65 +1,186 @@
 # dsm2dtm
-<img align="right" width = 200 height=80 src="./data/logo.png">
 
-This repo generates DTM (Digital Terrain Model) from DSM (Digital Surface Model).
+<img align="right" width = 200 height=80 src="images/logo.png" alt="dsm2dtm logo">
 
-[![GitHub](https://img.shields.io/github/license/seedlit/dsm2dtm?style=flat-square)](https://github.com/seedlit/dsm2dtm/blob/main/LICENSE)
-[![Anaconda-Server Badge](https://anaconda.org/conda-forge/dsm2dtm/badges/downloads.svg)](https://anaconda.org/conda-forge/dsm2dtm)
-[![Conda Version](https://img.shields.io/conda/vn/conda-forge/dsm2dtm.svg)](https://anaconda.org/conda-forge/dsm2dtm)
-[![GitHub contributors](https://img.shields.io/github/contributors/seedlit/dsm2dtm?style=flat-square)](https://github.com/seedlit/dsm2dtm/graphs/contributors)
-![Python Version Supported](https://img.shields.io/badge/python-3.5%2B-blue)
-[![Anaconda-Server Badge](https://anaconda.org/conda-forge/dsm2dtm/badges/platforms.svg)](https://anaconda.org/conda-forge/dsm2dtm)
+**Generate DTM (Digital Terrain Model) from DSM (Digital Surface Model)**
 
-## Installation 
+[![CI](https://github.com/seedlit/dsm2dtm/actions/workflows/ci.yml/badge.svg)](https://github.com/seedlit/dsm2dtm/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/dsm2dtm)](https://pypi.org/project/dsm2dtm/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/dsm2dtm)](https://pypi.org/project/dsm2dtm/)
+[![Conda Forge](https://img.shields.io/conda/vn/conda-forge/dsm2dtm)](https://anaconda.org/conda-forge/dsm2dtm)
+[![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/dsm2dtm)](https://anaconda.org/conda-forge/dsm2dtm)
+[![License](https://img.shields.io/github/license/seedlit/dsm2dtm?style=flat-square)](LICENSE)
 
-**Note**: We are unable to install Saga as part of the dependency, as it is not avilable on PyPI or conda. <br/>
-To install saga_cmd - `sudo apt update; sudo apt install saga`
+`dsm2dtm` is a robust, python library for extracting bare earth Digital Terrain Models (DTM) from Digital Surface Models (DSM). It effectively removes non-ground features like buildings, vegetation, and cars, leaving only the underlying terrain.
 
-### From Conda:
+Key features:
+*   **Pure Python**: No external binary dependencies (no SAGA, no GDAL CLI). Just `numpy`, `scipy`, and `rasterio`.
+*   **Robust**: Handles noise, cliffs, and varied resolutions automatically.
+*   **Adaptive**: Automatically tunes parameters based on input resolution and terrain slope.
+*   **Easy to Use**: Simple CLI and a clean Python API for developers.
+
+---
+
+## Installation
+
+### Via Pip
 ```bash
-conda install -c conda-forge dsm2dtm 
+pip install dsm2dtm
 ```
-These step are for Linux. This will differ a bit for MacOS and windows. 
+
+### Via Conda
+```bash
+conda install -c conda-forge dsm2dtm
+```
+
 ### From Source
-
 ```bash
-# Step 1: Clone the repo
-% git clone https://github.com/seedlit/dsm2dtm.git
-# Step 2: Move in the folder
-% cd dsm2dtm
-# Step 3: Create a virtual environment
-% python3 -m venv venv
-# Step 4: Activate the environment
-% source venv/bin/activate
-# Step 5: Install requirements
-% pip install -r requirements.txt
-# Step 6: Install saga_cmd
-% sudo apt update
-% sudo apt install saga
+git clone https://github.com/seedlit/dsm2dtm.git
+cd dsm2dtm
+pip install .
 ```
+
+---
 
 ## Usage
-Run the script dsm2dtm.py and pass the dsm path as argument.
-```bash
-python dsm2dtm.py --dsm data/sample_dsm.tif
+
+### 1. Python Library
+
+You can integrate `dsm2dtm` into your own Python pipelines. We provide high-level and low-level APIs.
+
+#### High-Level API (File-based)
+```python
+from dsm2dtm import generate_dtm, save_dtm
+
+input_path = "data/input_dsm.tif"
+output_path = "results/output_dtm.tif"
+
+# 1. Generate DTM (returns numpy array and profile metadata)
+dtm_array, profile = generate_dtm(input_path)
+
+# 2. Save to disk
+save_dtm(dtm_array, profile, output_path)
 ```
 
-### Example1: Input DSM and generated DTM over a flat terrain
-![example](./results/result.png)
+#### Low-Level API (Numpy-based)
+Ideal for in-memory processing or integration with other libraries like `xarray`.
 
-### Example2: Input DSM, generated DTM, and groundtruth DTM (Lidar derived) over a hillside terrain
-DSM was derived from [this point cloud data](https://cloud.rockrobotic.com/share/f42b5b69-c87c-4433-94f8-4bc0d8eaee90#lidar)
-![example](./results/example2_dsm2dtm_hillside.png)
+```python
+import rasterio
+from dsm2dtm.algorithm import dsm_to_dtm
 
+# Load data yourself
+with rasterio.open("input_dsm.tif") as src:
+    dsm = src.read(1)
+    res = src.res  # (x_res, y_res)
+    nodata = src.nodata
 
-## TODO
- - Add tests and coverage
- - Add poetry (with separate dependencies for dev: black, isort, pyest, etc.)
- - Add pre-commit hooks (isort, black, mypy)
- - Add documentation
- - Move test file(s) to remote server OR use gitlfs OR use fake-geo-images
- - Reduce I/O by passing rasterio object instead of raster path
- - Add exception handling
- - use [SAGA python API](https://saga-gis.sourceforge.io/saga_api_python/index.html) instead of command line ineterface (saga_cmd)
- - upsample generated DTM if the source DSM was downsampled
- - setup docker-compose (and maybe expose as FastAPI app?)
+# Run algorithm on raw numpy array
+dtm = dsm_to_dtm(dsm, resolution=res, nodata=nodata)
+
+# dtm is a float32 numpy array
+```
+
+### 2. Command Line Interface (CLI)
+
+The simplest way to use `dsm2dtm` is via the command line.
+
+```bash
+dsm2dtm --dsm input_dsm.tif --out_dir output/
+```
+
+**Arguments:**
+*   `--dsm`: Path to the input DSM (GeoTIFF).
+*   `--out_dir`: Directory where the output DTM will be saved (default: `generated_dtm`).
+*   `--radius`: (Optional) Kernel radius in meters for object removal. Objects larger than 2x this radius will typically NOT be removed. Set this to slightly larger than half the width of the largest building in your scene. Default: 40.0.
+*   `--slope`: (Optional) Terrain slope (0-1). Calculated automatically if not provided.
+
+---
+
+## How It Works
+
+The library implements an optimized version of the **Progressive Morphological Filter (PMF)** combined with surface refinement.
+
+```mermaid
+graph LR
+    subgraph Preprocessing [Preprocessing]
+        A["Input DSM"] -->|Load & Reproject| B["Internal Grid (UTM)"];
+        B -->|Resample if >0.5m| C["Working Resolution"];
+        C --> D["Slope Estimation"];
+    end
+
+    subgraph Core [Core Filtering]
+        D --> E{"Progressive Morphological Filter"};
+        E -->|Iterative Opening| F["Rough Ground Estimate"];
+        F --> G["Surface Refinement"];
+        G -->|Remove Spikes| H["Refined Ground"];
+    end
+
+    subgraph Post [Post-Processing]
+        H --> I["Gaussian Smoothing"];
+        I --> J["Gap Filling"];
+        J -->|Reproject| K["Final DTM"];
+    end
+```
+
+1.  **Resolution Adaptation**: Parameters are scaled automatically based on the input pixel size. High-resolution inputs (>0.5m) are optionally downsampled for stability and speed, then upsampled back.
+2.  **Slope Estimation**: Local terrain slopes are calculated to adapt the filtering thresholds.
+3.  **Progressive Morphological Filter (PMF)**: Iteratively applies morphological opening (erosion followed by dilation) with increasing window sizes. This effectively "shaves off" objects that stick out above the ground surface.
+4.  **Refinement**: A smoothing step compares the rough ground estimate with the original surface to recover over-smoothed details while rejecting spikes.
+5.  **Gap Filling**: Any remaining holes (nodata) are filled using inverse distance weighting or nearest neighbor interpolation.
+
+---
+
+## Examples
+
+### Example 1: Urban Area
+Removal of buildings from a Digital Surface Model to reveal the underlying terrain.
+![Urban Example](images/result.png)
+
+### Example 2: Hillside Terrain
+Comparison of Input DSM, Generated DTM, and Lidar-derived Ground Truth.
+![Hillside Example](images/example2_dsm2dtm_hillside.png)
+
+---
+
+## Contributing
+
+We welcome contributions! Please feel free to submit a Pull Request.
+
+### Roadmap / Todo
+We are actively looking for help with:
+*   **Performance:**
+    *   GPU acceleration (e.g., using `cupy`).
+    *   Parallel processing (Multi-core/Multi-threading or `dask`).
+*   **Algorithm Improvements:**
+    *   Reducing holes/artifacts on building borders
+    *   Better removal of square-shaped buildings (currently works best on rectangular footprints).
+
+### Setup
+We use `uv` for dependency management and `pre-commit` for code quality.
+
+```bash
+# 1. Clone
+git clone https://github.com/seedlit/dsm2dtm.git
+
+# 2. Install dependencies
+uv sync --all-extras
+
+# 3. Install hooks
+pre-commit install
+```
+
+### Running Tests
+We use `pytest` for testing. The suite includes unit tests, stress tests, and integration tests with real-world data (downloaded automatically).
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run only stress tests
+uv run pytest tests/test_stress.py
+```
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
