@@ -42,21 +42,7 @@ pip install .
 
 ## Usage
 
-### 1. Command Line Interface (CLI)
-
-The simplest way to use `dsm2dtm` is via the command line.
-
-```bash
-dsm2dtm --dsm input_dsm.tif --out_dir output/
-```
-
-**Arguments:**
-*   `--dsm`: Path to the input DSM (GeoTIFF).
-*   `--out_dir`: Directory where the output DTM will be saved (default: `generated_dtm`).
-*   `--radius`: (Optional) Kernel radius in meters for object removal. Larger values remove larger buildings but are slower. Default: 40.0.
-*   `--slope`: (Optional) Terrain slope (0-1). Calculated automatically if not provided.
-
-### 2. Python Library
+### 1. Python Library
 
 You can integrate `dsm2dtm` into your own Python pipelines. We provide high-level and low-level APIs.
 
@@ -92,6 +78,20 @@ dtm = dsm_to_dtm(dsm, resolution=res, nodata=nodata)
 
 # dtm is a float32 numpy array
 ```
+
+### 2. Command Line Interface (CLI)
+
+The simplest way to use `dsm2dtm` is via the command line.
+
+```bash
+dsm2dtm --dsm input_dsm.tif --out_dir output/
+```
+
+**Arguments:**
+*   `--dsm`: Path to the input DSM (GeoTIFF).
+*   `--out_dir`: Directory where the output DTM will be saved (default: `generated_dtm`).
+*   `--radius`: (Optional) Kernel radius in meters for object removal. Larger values remove larger buildings but are slower. Default: 40.0.
+*   `--slope`: (Optional) Terrain slope (0-1). Calculated automatically if not provided.
 
 ---
 
@@ -131,7 +131,16 @@ graph LR
 
 ## Contributing
 
-We welcome contributions!
+We welcome contributions! Please feel free to submit a Pull Request.
+
+### Roadmap / Todo
+We are actively looking for help with:
+*   **Performance:**
+    *   GPU acceleration (e.g., using `cupy`).
+    *   Parallel processing (Multi-core/Multi-threading or `dask`).
+*   **Algorithm Improvements:**
+    *   Reducing holes/artifacts on building borders
+    *   Better removal of square-shaped buildings (currently works best on rectangular footprints).
 
 ### Setup
 We use `uv` for dependency management and `pre-commit` for code quality.
