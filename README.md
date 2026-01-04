@@ -102,22 +102,22 @@ The library implements an optimized version of the **Progressive Morphological F
 ```mermaid
 graph TD
     subgraph Preprocessing [Preprocessing]
-        A[Input DSM] -->|Load & Reproject| B[Internal Grid (UTM)];
-        B -->|Resample if >0.5m| C[Working Resolution];
-        C --> D[Slope Estimation];
+        A["Input DSM"] -->|Load & Reproject| B["Internal Grid (UTM)"];
+        B -->|Resample if >0.5m| C["Working Resolution"];
+        C --> D["Slope Estimation"];
     end
 
     subgraph Core [Core Filtering]
-        D --> E{Progressive Morphological Filter};
-        E -->|Iterative Opening| F[Rough Ground Estimate];
-        F --> G[Surface Refinement];
-        G -->|Remove Spikes| H[Refined Ground];
+        D --> E{"Progressive Morphological Filter"};
+        E -->|Iterative Opening| F["Rough Ground Estimate"];
+        F --> G["Surface Refinement"];
+        G -->|Remove Spikes| H["Refined Ground"];
     end
 
     subgraph Post [Post-Processing]
-        H --> I[Gaussian Smoothing];
-        I --> J[Gap Filling];
-        J -->|Reproject| K[Final DTM];
+        H --> I["Gaussian Smoothing"];
+        I --> J["Gap Filling"];
+        J -->|Reproject| K["Final DTM"];
     end
 ```
 
