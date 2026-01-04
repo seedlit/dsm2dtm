@@ -100,7 +100,7 @@ dtm = dsm_to_dtm(dsm, resolution=res, nodata=nodata)
 The library implements an optimized version of the **Progressive Morphological Filter (PMF)** combined with surface refinement.
 
 ```mermaid
-graph TD
+graph LR
     subgraph Preprocessing [Preprocessing]
         A["Input DSM"] -->|Load & Reproject| B["Internal Grid (UTM)"];
         B -->|Resample if >0.5m| C["Working Resolution"];
