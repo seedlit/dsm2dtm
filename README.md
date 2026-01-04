@@ -90,7 +90,7 @@ dsm2dtm --dsm input_dsm.tif --out_dir output/
 **Arguments:**
 *   `--dsm`: Path to the input DSM (GeoTIFF).
 *   `--out_dir`: Directory where the output DTM will be saved (default: `generated_dtm`).
-*   `--radius`: (Optional) Kernel radius in meters for object removal. Larger values remove larger buildings but are slower. Default: 40.0.
+*   `--radius`: (Optional) Kernel radius in meters for object removal. Objects larger than 2x this radius will typically NOT be removed. Set this to slightly larger than half the width of the largest building in your scene. Default: 40.0.
 *   `--slope`: (Optional) Terrain slope (0-1). Calculated automatically if not provided.
 
 ---
