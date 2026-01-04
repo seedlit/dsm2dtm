@@ -131,6 +131,18 @@ graph LR
 
 ---
 
+## Examples
+
+### Example 1: Urban Area
+Removal of buildings from a Digital Surface Model to reveal the underlying terrain.
+![Urban Example](images/result.png)
+
+### Example 2: Hillside Terrain
+Comparison of Input DSM, Generated DTM, and Lidar-derived Ground Truth.
+![Hillside Example](images/example2_dsm2dtm_hillside.png)
+
+---
+
 ## Contributing
 
 We welcome contributions! Please feel free to submit a Pull Request.
