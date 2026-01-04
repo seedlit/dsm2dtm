@@ -78,12 +78,22 @@ def calculate_terrain_slope(dsm: NDArray[np.floating], resolution: float, nodata
     if dsm_for_slope.shape[0] < 2 or dsm_for_slope.shape[1] < 2:
         return PMF_SLOPE
 
-    dy, dx = np.gradient(dsm_for_slope)
+    # Replace nodata with NaN to prevent gradient overflow at boundaries
+    dsm_nan = dsm_for_slope.copy()
+    dsm_nan[~valid_mask] = np.nan
+
+    dy, dx = np.gradient(dsm_nan)
     slope_per_pixel = np.sqrt(dy**2 + dx**2)
     slope_dimensionless = slope_per_pixel / res_for_slope
+
+    # Extract slopes where original data was valid.
+    # Note: Gradient at the edge of validity will be NaN because neighbors are NaN.
+    # np.nanmedian handles this automatically.
     valid_slopes = slope_dimensionless[valid_mask]
-    if len(valid_slopes) == 0:
+
+    if len(valid_slopes) == 0 or np.all(np.isnan(valid_slopes)):
         return PMF_SLOPE
+
     # Use Median instead of Mean for robustness against outliers (vertical walls)
     median_slope = np.nanmedian(valid_slopes)
     # Clamp to reasonable bounds

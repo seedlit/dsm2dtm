@@ -41,6 +41,7 @@ dev = [
     "ruff",
     "mypy",
     "pre-commit",
+    "pooch",
 ]
 
 [project.scripts]

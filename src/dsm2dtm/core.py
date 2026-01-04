@@ -7,12 +7,13 @@ Author: Naman Jain
 import argparse
 import os
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 import rasterio
 from numpy.typing import NDArray
 from rasterio.crs import CRS
+from rasterio.io import DatasetReader
 from rasterio.transform import Affine
 from rasterio.warp import Resampling, calculate_default_transform, reproject
 
@@ -42,95 +43,97 @@ class DSMContext:
     utm_transform: Optional[Affine] = None
 
 
-def _load_dsm(dsm_path: str) -> DSMContext:
+def _create_context_from_src(src: DatasetReader) -> DSMContext:
     """
-    Load a DSM file and prepare it for processing.
-    If the input DSM uses a Geographic CRS (e.g., Lat/Lon), it is automatically
-    reprojected to an appropriate local UTM zone to ensure accurate metric calculations.
+    Internal helper to create DSMContext from an open rasterio dataset.
+    """
+    is_geographic = src.crs and src.crs.is_geographic
+    nodata = src.nodata if src.nodata is not None else DEFAULT_NODATA
+
+    if not is_geographic:
+        return DSMContext(
+            dsm=src.read(1),
+            profile=src.profile,
+            nodata=nodata,
+            resolution=src.res,
+            is_reprojected=False,
+            original_shape=(src.height, src.width),
+        )
+
+    print(f"Input is Geographic ({src.crs}). Reprojecting to UTM for processing...")
+    left, bottom, right, top = src.bounds
+    center_lon = (left + right) / 2
+    center_lat = (bottom + top) / 2
+    utm_crs = estimate_utm_crs(center_lon, center_lat)
+    print(f"Selected CRS: {utm_crs}")
+
+    transform, width, height = calculate_default_transform(src.crs, utm_crs, src.width, src.height, *src.bounds)
+
+    dsm_utm = np.zeros((height, width), dtype=np.float32)
+    reproject(
+        source=rasterio.band(src, 1),
+        destination=dsm_utm,
+        src_transform=src.transform,
+        src_crs=src.crs,
+        dst_transform=transform,
+        dst_crs=utm_crs,
+        resampling=Resampling.bilinear,
+        dst_nodata=nodata,
+    )
+
+    profile = src.profile.copy()
+    profile.update(
+        {
+            "crs": utm_crs,
+            "transform": transform,
+            "width": width,
+            "height": height,
+            "nodata": nodata,
+        }
+    )
+
+    return DSMContext(
+        dsm=dsm_utm,
+        profile=profile,
+        nodata=nodata,
+        resolution=(transform[0], -transform[4]),
+        is_reprojected=True,
+        original_crs=src.crs,
+        original_transform=src.transform,
+        original_shape=(src.height, src.width),
+        utm_crs=utm_crs,
+        utm_transform=transform,
+    )
+
+
+def _load_dsm(dsm_input: Union[str, DatasetReader]) -> DSMContext:
+    """
+    Load DSM context from a file path or an open rasterio dataset.
+    """
+    # Check if input is a path (str or PathLike)
+    if isinstance(dsm_input, (str, os.PathLike)):
+        with rasterio.open(dsm_input) as src:
+            return _create_context_from_src(src)
+    else:
+        # Assume it is an open rasterio dataset
+        return _create_context_from_src(dsm_input)
+
+
+def _prepare_output(dtm: NDArray[np.floating], context: DSMContext) -> Tuple[NDArray[np.floating], Dict[str, Any]]:
+    """
+    Prepare the DTM for output, reprojecting back to original CRS if necessary.
 
     Args:
-        dsm_path (str): The file path to the DSM.
+        dtm (NDArray[np.floating]): The generated DTM array (potentially in UTM).
+        context (DSMContext): The context object containing original metadata.
 
     Returns:
-        DSMContext: A context object containing the loaded DSM data and metadata.
-    """
-    with rasterio.open(dsm_path) as src:
-        is_geographic = src.crs and src.crs.is_geographic
-        nodata = src.nodata if src.nodata is not None else DEFAULT_NODATA
-
-        if not is_geographic:
-            return DSMContext(
-                dsm=src.read(1),
-                profile=src.profile,
-                nodata=nodata,
-                resolution=src.res,
-                is_reprojected=False,
-                original_shape=(src.height, src.width),
-            )
-
-        print(f"Input is Geographic ({src.crs}). Reprojecting to UTM for processing...")
-        left, bottom, right, top = src.bounds
-        center_lon = (left + right) / 2
-        center_lat = (bottom + top) / 2
-        utm_crs = estimate_utm_crs(center_lon, center_lat)
-        print(f"Selected CRS: {utm_crs}")
-
-        transform, width, height = calculate_default_transform(src.crs, utm_crs, src.width, src.height, *src.bounds)
-
-        dsm_utm = np.zeros((height, width), dtype=np.float32)
-        reproject(
-            source=rasterio.band(src, 1),
-            destination=dsm_utm,
-            src_transform=src.transform,
-            src_crs=src.crs,
-            dst_transform=transform,
-            dst_crs=utm_crs,
-            resampling=Resampling.bilinear,
-            dst_nodata=nodata,
-        )
-
-        profile = src.profile.copy()
-        profile.update(
-            {
-                "crs": utm_crs,
-                "transform": transform,
-                "width": width,
-                "height": height,
-                "nodata": nodata,
-            }
-        )
-
-        return DSMContext(
-            dsm=dsm_utm,
-            profile=profile,
-            nodata=nodata,
-            resolution=(transform[0], -transform[4]),
-            is_reprojected=True,
-            original_crs=src.crs,
-            original_transform=src.transform,
-            original_shape=(src.height, src.width),
-            utm_crs=utm_crs,
-            utm_transform=transform,
-        )
-
-
-def _save_dtm(dtm: NDArray[np.floating], output_path: str, context: DSMContext) -> None:
-    """
-    Save the generated DTM to a file.
-    If the DSM was reprojected during loading (e.g., from Geographic to UTM),
-    this function handles reprojecting the result back to the original CRS before saving.
-
-    Args:
-        dtm (NDArray[np.floating]): The generated DTM array.
-        output_path (str): The file path where the DTM will be saved.
-        context (DSMContext): The context object containing original metadata and CRS info.
+        Tuple[NDArray, Dict]: The DTM array and its rasterio profile/metadata.
     """
     if not context.is_reprojected:
         profile = context.profile.copy()
         profile.update(dtype=dtm.dtype, nodata=context.nodata)
-        with rasterio.open(output_path, "w", **profile) as dst:
-            dst.write(dtm, 1)
-        return
+        return dtm, profile
 
     print("Reprojecting DTM back to original CRS...")
 
@@ -161,26 +164,37 @@ def _save_dtm(dtm: NDArray[np.floating], output_path: str, context: DSMContext) 
         "transform": context.original_transform,
     }
 
-    with rasterio.open(output_path, "w", **out_profile) as dst:
-        dst.write(dtm_out, 1)
+    return dtm_out, out_profile
 
 
-def main(
-    dsm_path: str,
-    out_dir: str,
+def save_dtm(dtm: NDArray[np.floating], profile: Dict[str, Any], output_path: str) -> None:
+    """
+    Write the DTM array to a file using the provided profile.
+
+    Args:
+        dtm (NDArray[np.floating]): The DTM array.
+        profile (Dict[str, Any]): Rasterio profile metadata.
+        output_path (str): Destination file path.
+    """
+    with rasterio.open(output_path, "w", **profile) as dst:
+        dst.write(dtm, 1)
+
+
+def generate_dtm(
+    dsm_input: Union[str, DatasetReader],
     kernel_radius_meters: float = DEFAULT_KERNEL_RADIUS_METERS,
     slope: Optional[float] = None,
     initial_threshold: float = PMF_INITIAL_THRESHOLD,
     max_threshold: float = PMF_MAX_THRESHOLD,
-) -> str:
+) -> Tuple[NDArray[np.floating], Dict[str, Any]]:
     """
-    Main function to generate a DTM from a DSM file.
-    This function coordinates the entire process: loading the DSM (and reprojecting if necessary),
-    generating the DTM, and saving the result to the specified output directory.
+    Generate a DTM from a DSM (file path or rasterio dataset).
+
+    This function handles loading, optional reprojection (to UTM for processing),
+    DTM generation, and reprojection back to the original CRS.
 
     Args:
-        dsm_path (str): Path to the input DSM file.
-        out_dir (str): Directory where the output DTM will be saved.
+        dsm_input (Union[str, rasterio.io.DatasetReader]): Input DSM file path or open rasterio dataset.
         kernel_radius_meters (float, optional): Kernel radius for PMF in meters.
             Defaults to DEFAULT_KERNEL_RADIUS_METERS.
         slope (Optional[float], optional): Terrain slope. If None, calculated from data. Defaults to None.
@@ -188,20 +202,13 @@ def main(
         max_threshold (float, optional): Max elevation threshold for PMF. Defaults to PMF_MAX_THRESHOLD.
 
     Returns:
-        str: The path to the generated DTM file.
+        Tuple[NDArray, Dict]: A tuple containing the DTM numpy array and the rasterio profile (metadata).
     """
-    os.makedirs(out_dir, exist_ok=True)
-    # Ensure temp dir exists if used internally
-    # Keeping behavior consistent, though explicit temp file usage is reduced.
-
-    output_name = os.path.splitext(os.path.basename(dsm_path))[0] + "_dtm.tif"
-    dtm_path = os.path.join(out_dir, output_name)
-
-    # 1. Load and Prepare
-    ctx = _load_dsm(dsm_path)
+    # 1. Load and Prepare (Reproject to UTM if needed)
+    ctx = _load_dsm(dsm_input)
 
     # 2. Process
-    dtm = dsm_to_dtm(
+    dtm_utm = dsm_to_dtm(
         ctx.dsm,
         ctx.resolution,
         kernel_radius_meters=kernel_radius_meters,
@@ -211,11 +218,8 @@ def main(
         nodata=ctx.nodata,
     )
 
-    # 3. Save
-    _save_dtm(dtm, dtm_path, ctx)
-
-    print(f"DTM generated at: {dtm_path}")
-    return dtm_path
+    # 3. Prepare Output (Reproject back if needed)
+    return _prepare_output(dtm_utm, ctx)
 
 
 def main_cli() -> None:
@@ -243,14 +247,24 @@ def main_cli() -> None:
     )
     args = parser.parse_args()
 
-    main(
+    # Generate DTM (returns array and profile)
+    dtm_array, profile = generate_dtm(
         args.dsm,
-        args.out_dir,
         kernel_radius_meters=args.radius,
         slope=args.slope,
         initial_threshold=args.init_threshold,
         max_threshold=args.max_threshold,
     )
+
+    # Construct output path
+    os.makedirs(args.out_dir, exist_ok=True)
+    output_name = os.path.splitext(os.path.basename(args.dsm))[0] + "_dtm.tif"
+    dtm_path = os.path.join(args.out_dir, output_name)
+
+    # Save to file
+    save_dtm(dtm_array, profile, dtm_path)
+
+    print(f"DTM generated at: {dtm_path}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # dsm2dtm
 
-<img align="right" width = 200 height=80 src="./data/logo.png">
+<img align="right" width = 200 height=80 src="./images/logo.png">
 
 **Generate DTM (Digital Terrain Model) from DSM (Digital Surface Model)**
 
@@ -52,6 +52,7 @@ After installation, use the `dsm2dtm` command:
 ```bash
 dsm2dtm --dsm data/sample_dsm.tif --out_dir results/
 ```
+#### TODO: needs to be updated
 
 **Arguments:**
 *   `--dsm`: Path to the input Digital Surface Model (GeoTIFF).
@@ -62,15 +63,14 @@ dsm2dtm --dsm data/sample_dsm.tif --out_dir results/
 You can also use `dsm2dtm` as a library in your own Python scripts:
 
 ```python
-from dsm2dtm.core import main
+from dsm2dtm.core import generate_dtm
 
 dsm_path = "path/to/dsm.tif"
 out_dir = "path/to/output"
 
 # Generate the DTM
-dtm_path = main(dsm_path, out_dir)
+dtm_array, profile = generate_dtm(dsm_path)
 
-print(f"DTM generated at: {dtm_path}")
 ```
 
 ## How it Works
@@ -91,11 +91,11 @@ All steps are performed using block-wise processing to handle rasters larger tha
 
 ### Example 1: Flat Terrain
 Input DSM vs. Generated DTM over a flat area.
-![example](./results/result.png)
+![example](./images/result.png)
 
 ### Example 2: Hillside Terrain
 Comparison of Input DSM, Generated DTM, and Ground Truth DTM (Lidar derived).
-![example](./results/example2_dsm2dtm_hillside.png)
+![example](./images/example2_dsm2dtm_hillside.png)
 
 ## License
 
