@@ -1,0 +1,47 @@
+name: CI - Conda
+
+on:
+  push:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  test-conda:
+    name: Test (Conda)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    defaults:
+      run:
+        shell: bash -l {0} # Required for conda activation
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Conda
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        auto-update-conda: true
+        python-version: ${{ matrix.python-version }}
+        channels: conda-forge
+        channel-priority: strict
+        # Clean up to save space
+        auto-activate-base: false
+
+    - name: Install dependencies
+      run: |
+        conda install numpy rasterio scipy scikit-image pyproj pytest pooch pip
+
+    - name: Install dsm2dtm
+      run: |
+        # Install the package in editable mode, skipping dependencies
+        # (since we just installed them via conda)
+        pip install --no-deps -e .
+
+    - name: Run Tests
+      run: |
+        pytest

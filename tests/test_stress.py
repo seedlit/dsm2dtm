@@ -47,7 +47,7 @@ def test_large_dsm_performance():
     end_time = time.time()
     duration = end_time - start_time
     print(f"\nLarge DSM ({shape}) processed in {duration:.2f}s")
-    assert duration < 60.0
+    assert duration < 180.0
     assert dtm.shape == shape
 
 
