@@ -1,6 +1,6 @@
 # dsm2dtm
 
-<img align="right" width = 200 height=80 src="images/logo.png" alt="dsm2dtm logo">
+<img align="right" width = 200 height=80 src="https://raw.githubusercontent.com/seedlit/dsm2dtm/main/images/logo.png" alt="dsm2dtm logo">
 
 **Generate DTM (Digital Terrain Model) from DSM (Digital Surface Model)**
 
@@ -48,12 +48,12 @@ pip install .
 
 You can integrate `dsm2dtm` into your own Python pipelines. We provide high-level and low-level APIs.
 
-#### High-Level API (File-based)
+#### High-Level API (file based)
 ```python
 from dsm2dtm import generate_dtm, save_dtm
 
-input_path = "data/input_dsm.tif"
-output_path = "results/output_dtm.tif"
+input_path = "dsm.tif"
+output_path = "dtm.tif"
 
 # 1. Generate DTM (returns numpy array and profile metadata)
 dtm_array, profile = generate_dtm(input_path)
@@ -62,23 +62,26 @@ dtm_array, profile = generate_dtm(input_path)
 save_dtm(dtm_array, profile, output_path)
 ```
 
-#### Low-Level API (Numpy-based)
+#### Low-Level API (rasterio based)
 Ideal for in-memory processing or integration with other libraries like `xarray`.
 
 ```python
 import rasterio
 from dsm2dtm.algorithm import dsm_to_dtm
+from dsm2dtm import save_dtm
 
 # Load data yourself
-with rasterio.open("input_dsm.tif") as src:
+with rasterio.open("dsm.tif") as src:
     dsm = src.read(1)
     res = src.res  # (x_res, y_res)
     nodata = src.nodata
+    profile = src.profile
 
 # Run algorithm on raw numpy array
-dtm = dsm_to_dtm(dsm, resolution=res, nodata=nodata)
+dtm_array = dsm_to_dtm(dsm, resolution=res, nodata=nodata)
 
-# dtm is a float32 numpy array
+# Save to disk
+save_dtm(dtm_array, profile, "dtm.tif")
 ```
 
 ### 2. Command Line Interface (CLI)
@@ -86,7 +89,7 @@ dtm = dsm_to_dtm(dsm, resolution=res, nodata=nodata)
 The simplest way to use `dsm2dtm` is via the command line.
 
 ```bash
-dsm2dtm --dsm input_dsm.tif --out_dir output/
+dsm2dtm --dsm dsm.tif --out_dir output/
 ```
 
 **Arguments:**
@@ -135,11 +138,11 @@ graph LR
 
 ### Example 1: Urban Area
 Removal of buildings from a Digital Surface Model to reveal the underlying terrain.
-![Urban Example](images/result.png)
+![Urban Example](https://raw.githubusercontent.com/seedlit/dsm2dtm/main/images/result.png)
 
 ### Example 2: Hillside Terrain
 Comparison of Input DSM, Generated DTM, and Lidar-derived Ground Truth.
-![Hillside Example](images/example2_dsm2dtm_hillside.png)
+![Hillside Example](https://raw.githubusercontent.com/seedlit/dsm2dtm/main/images/example2_dsm2dtm_hillside.png)
 
 ---
 
