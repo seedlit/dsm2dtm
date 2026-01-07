@@ -100,6 +100,14 @@ dsm2dtm --dsm dsm.tif --out_dir output/
 
 ---
 
+## Example: Vegetation & Structure Removal
+This comparison highlights the removal of surface features, such as dense vegetation and buildings, to reveal the underlying bare earth topography and river details in the generated Digital Terrain Model.
+
+
+![Example](https://raw.githubusercontent.com/seedlit/dsm2dtm/main/images/example.png)
+
+---
+
 ## How It Works
 
 The library implements an optimized version of the **Progressive Morphological Filter (PMF)** combined with surface refinement.
@@ -132,14 +140,6 @@ graph LR
 4.  **Refinement**: A smoothing step compares the rough ground estimate with the original surface to recover over-smoothed details while rejecting spikes.
 5.  **Gap Filling**: Any remaining holes (nodata) are filled using inverse distance weighting or nearest neighbor interpolation.
 
----
-
-## Example
-
-### Urban and vegetation area
-Removal of buildings and trees from a Digital Surface Model to reveal the underlying terrain and river.
-![Example](https://raw.githubusercontent.com/seedlit/dsm2dtm/main/images/example.png)
-
 
 ---
 
@@ -167,7 +167,7 @@ git clone https://github.com/seedlit/dsm2dtm.git
 uv sync --all-extras
 
 # 3. Install hooks
-pre-commit install
+uv run pre-commit install
 ```
 
 ### Running Tests
