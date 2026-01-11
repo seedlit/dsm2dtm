@@ -4,18 +4,25 @@ Author: Naman Jain
         naman.jain@btech2015.iitgn.ac.in
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 import rasterio
-from numpy.typing import NDArray
 from rasterio.crs import CRS
 from rasterio.io import DatasetReader
 from rasterio.transform import Affine
 from rasterio.warp import Resampling, calculate_default_transform, reproject
+
+# Backward compatibility for numpy < 1.21 (QGIS uses 1.20)
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+else:
+    NDArray = np.ndarray
 
 from dsm2dtm.algorithm import dsm_to_dtm
 from dsm2dtm.constants import (

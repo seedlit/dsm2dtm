@@ -140,3 +140,7 @@ test_results
 temp.md
 temp.py
 temp_data
+
+# QGIS plugin build artifacts
+qgis_plugin/dsm2dtm/ext_libs/
+qgis_plugin/dist/
