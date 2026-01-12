@@ -58,11 +58,21 @@ def create_zip():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(OUTPUT_ZIP, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Add plugin files
         for file in PLUGIN_DIR.rglob("*"):
             if file.is_file() and "__pycache__" not in str(file):
                 # Archive path should be dsm2dtm/... (plugin folder name)
                 arcname = file.relative_to(QGIS_PLUGIN_ROOT)
                 zf.write(file, arcname)
+
+        # Add LICENSE file from project root
+        license_file = PROJECT_ROOT / "LICENSE"
+        if license_file.exists():
+            # Place LICENSE inside the dsm2dtm folder in the zip
+            zf.write(license_file, "dsm2dtm/LICENSE")
+            print("✓ Added LICENSE")
+        else:
+            print("! Warning: LICENSE file not found in project root")
 
     print(f"✓ Created {OUTPUT_ZIP}")
 
