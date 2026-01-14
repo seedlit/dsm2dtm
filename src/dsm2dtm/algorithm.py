@@ -2,16 +2,23 @@
 Core algorithms for DSM to DTM conversion.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 
 import numpy as np
-from numpy.typing import NDArray
 from rasterio.crs import CRS
 from rasterio.fill import fillnodata
 from rasterio.transform import Affine
 from rasterio.warp import Resampling, reproject
 from scipy.ndimage import gaussian_filter, grey_opening, zoom
+
+# Backward compatibility for numpy < 1.21 (QGIS uses 1.20)
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+else:
+    NDArray = np.ndarray
 
 from dsm2dtm.constants import (
     DEFAULT_NODATA,

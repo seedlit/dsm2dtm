@@ -1,0 +1,19 @@
+[general]
+name=DSM to DTM
+qgisMinimumVersion=3.28
+description=Generate Digital Terrain Models (DTM) from Digital Surface Models (DSM). Removes buildings, vegetation, and cars.
+version=0.3.1
+author=Naman Jain
+email=naman.jain@btech2015.iitgn.ac.in
+about=A robust, pure-Python implementation of Progressive Morphological Filtering for bare-earth extraction. No external dependencies required beyond what QGIS provides.
+
+tracker=https://github.com/seedlit/dsm2dtm/issues
+repository=https://github.com/seedlit/dsm2dtm
+
+tags=dem,dtm,dsm,terrain,morphological,filter,lidar,elevation,bare-earth
+
+homepage=https://github.com/seedlit/dsm2dtm
+category=Raster
+icon=icon.png
+
+hasProcessingProvider=yes

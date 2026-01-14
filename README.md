@@ -98,6 +98,17 @@ dsm2dtm --dsm dsm.tif --out_dir output/
 *   `--radius`: (Optional) Kernel radius in meters for object removal. Objects larger than 2x this radius will typically NOT be removed. Set this to slightly larger than half the width of the largest building in your scene. Default: 40.0.
 *   `--slope`: (Optional) Terrain slope (0-1). Calculated automatically if not provided.
 
+
+### 3. QGIS Plugin
+
+The plugin is available in the official QGIS Plugin Repository.
+1. Open QGIS.
+2. Go to **Plugins** > **Manage and Install Plugins...**
+3. Search for `DSM to DTM`.
+4. Click **Install Plugin**.
+
+*Alternatively, view on the web: [plugins.qgis.org/plugins/dsm2dtm/](https://plugins.qgis.org/plugins/dsm2dtm/)*
+
 ---
 
 ## Example: Vegetation & Structure Removal
