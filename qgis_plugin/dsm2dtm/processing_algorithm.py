@@ -196,7 +196,7 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
         out_band = out_ds.GetRasterBand(1)
         out_band.WriteArray(dtm)
         out_band.SetNoDataValue(float(nodata))
-        
+
         # Close dataset to flush to disk
         out_band.FlushCache()
         out_ds = None
