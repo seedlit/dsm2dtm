@@ -26,9 +26,6 @@ OUTPUT_ZIP = OUTPUT_DIR / "dsm2dtm_qgis_plugin.zip"
 
 def clean():
     """Remove previous build artifacts."""
-    if EXT_LIBS.exists():
-        shutil.rmtree(EXT_LIBS)
-        print(f"✓ Cleaned {EXT_LIBS}")
     if OUTPUT_ZIP.exists():
         OUTPUT_ZIP.unlink()
         print(f"✓ Removed old {OUTPUT_ZIP}")
@@ -101,7 +98,6 @@ def main():
         return 1
 
     clean()
-    vendor_library()
     create_zip()
 
     print()

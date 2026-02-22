@@ -1,6 +1,9 @@
 """DSM to DTM Processing Algorithm."""
 
 import numpy as np
+
+# Import vendored library (renamed to avoid conflict with plugin package)
+from dsm2dtm_core.algorithm import dsm_to_dtm
 from qgis.core import (
     QgsProcessingAlgorithm,
     QgsProcessingException,
@@ -104,9 +107,6 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
         Returns:
             Dictionary with output layer path.
         """
-        # Import vendored library (renamed to avoid conflict with plugin package)
-        from dsm2dtm_core.algorithm import dsm_to_dtm
-
         # Get parameters
         input_layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         radius = self.parameterAsDouble(parameters, self.RADIUS, context)
@@ -170,27 +170,36 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
         feedback.setProgress(80)
         feedback.pushInfo("Writing output raster...")
 
-        # Write output using rasterio (bundled with QGIS or vendored)
-        import rasterio
-        from rasterio.crs import CRS
-        from rasterio.transform import from_bounds
+        # Write output using GDAL (native to QGIS)
+        from osgeo import gdal, osr
 
-        transform = from_bounds(extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum(), cols, rows)
+        driver = gdal.GetDriverByName("GTiff")
+        out_ds = driver.Create(output_path, cols, rows, 1, gdal.GDT_Float32)
+        if out_ds is None:
+            raise QgsProcessingException(f"Could not create output file: {output_path}")
 
-        profile = {
-            "driver": "GTiff",
-            "dtype": dtm.dtype,
-            "width": cols,
-            "height": rows,
-            "count": 1,
-            "crs": CRS.from_string(input_layer.crs().toWkt()),
-            "transform": transform,
-            "nodata": nodata,
-            "compress": "lzw",
-        }
+        # Set transform
+        xmin = extent.xMinimum()
+        ymax = extent.yMaximum()
+        pixel_width = extent.width() / cols
+        pixel_height = extent.height() / rows
+        # GDAL transform: [top_left_x, w_resolution, 0, top_left_y, 0, n_s_resolution (negative)]
+        out_transform = [xmin, pixel_width, 0.0, ymax, 0.0, -pixel_height]
+        out_ds.SetGeoTransform(out_transform)
 
-        with rasterio.open(output_path, "w", **profile) as dst:
-            dst.write(dtm, 1)
+        # Set projection
+        srs = osr.SpatialReference()
+        srs.ImportFromWkt(input_layer.crs().toWkt())
+        out_ds.SetProjection(srs.ExportToWkt())
+
+        # Write data
+        out_band = out_ds.GetRasterBand(1)
+        out_band.WriteArray(dtm)
+        out_band.SetNoDataValue(float(nodata))
+
+        # Close dataset to flush to disk
+        out_band.FlushCache()
+        out_ds = None
 
         feedback.setProgress(100)
         feedback.pushInfo("Done!")
