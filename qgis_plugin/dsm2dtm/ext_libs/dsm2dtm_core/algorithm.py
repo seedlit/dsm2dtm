@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional, Tuple
 
 import numpy as np
-from scipy.ndimage import gaussian_filter, grey_opening, zoom, distance_transform_edt
+from scipy.ndimage import distance_transform_edt, gaussian_filter, grey_opening, zoom
 
 # Backward compatibility for numpy < 1.21 (QGIS uses 1.20)
 if TYPE_CHECKING:
@@ -222,7 +222,7 @@ def _process_coarse_dsm(
 
     # Upsample
     dtm_fine = zoom(dtm_coarse, (h / new_h, w / new_w), order=1)
-    
+
     # Restore original nodata mask
     dtm_fine[invalid_mask] = nodata
 
@@ -289,14 +289,14 @@ def _process_standard_dsm(
     if np.any(invalid_mask) and np.any(valid_mask):
         _, ind = distance_transform_edt(invalid_mask, return_distances=True, return_indices=True)
         filled_ground = ground[tuple(ind)]
-        
+
         if GAP_FILL_SMOOTHING_ITERATIONS > 0:
             # Apply some smoothing specifically to the filled boundaries
             smoothed_filled = gaussian_filter(filled_ground, sigma=1.0)
             ground[invalid_mask] = smoothed_filled[invalid_mask]
         else:
             ground[invalid_mask] = filled_ground[invalid_mask]
-            
+
     return ground
 
 
