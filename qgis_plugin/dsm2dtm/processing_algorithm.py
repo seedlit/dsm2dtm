@@ -1,6 +1,9 @@
 """DSM to DTM Processing Algorithm."""
 
 import numpy as np
+
+# Import vendored library (renamed to avoid conflict with plugin package)
+from dsm2dtm_core.algorithm import dsm_to_dtm
 from qgis.core import (
     QgsProcessingAlgorithm,
     QgsProcessingException,
@@ -104,9 +107,6 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
         Returns:
             Dictionary with output layer path.
         """
-        # Import vendored library (renamed to avoid conflict with plugin package)
-        from dsm2dtm_core.algorithm import dsm_to_dtm
-
         # Get parameters
         input_layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         radius = self.parameterAsDouble(parameters, self.RADIUS, context)

@@ -3,8 +3,8 @@ import sys
 
 import numpy as np
 
-# Add the qgis_plugin to sys.path to test its vendored version
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "qgis_plugin")))
+# Add the ext_libs to sys.path to test the vendored version
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "qgis_plugin", "dsm2dtm", "ext_libs")))
 
 
 def test_qgis_algorithm_no_rasterio():
@@ -16,7 +16,7 @@ def test_qgis_algorithm_no_rasterio():
     sys.modules["rasterio"] = None
 
     try:
-        from dsm2dtm.ext_libs.dsm2dtm_core.algorithm import dsm_to_dtm
+        from dsm2dtm_core.algorithm import dsm_to_dtm
 
         # Run a small test to ensure it works
         dsm = np.full((50, 50), 100.0, dtype=np.float32)
