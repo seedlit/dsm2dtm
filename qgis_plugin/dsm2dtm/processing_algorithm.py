@@ -13,6 +13,13 @@ from qgis.core import (
 )
 
 
+def _utm_epsg_for(lon: float, lat: float) -> int:
+    """EPSG of the UTM zone for (lon, lat). Wraps lon=180 to zone 1."""
+    zone = int((lon + 180.0) / 6.0) % 60 + 1
+    base = 32700 if lat < 0 else 32600
+    return base + zone
+
+
 class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
     """Algorithm to convert DSM (Digital Surface Model) to DTM (Digital Terrain Model).
 
@@ -119,7 +126,6 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
         feedback.pushInfo(f"Processing: {input_layer.source()}")
         feedback.pushInfo(f"Radius: {radius}m, Slope: {'auto' if slope == 0 else slope}")
 
-        # Read raster data using QGIS/GDAL
         provider = input_layer.dataProvider()
         extent = input_layer.extent()
         rows = input_layer.height()
@@ -133,25 +139,67 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
             nodata = -9999.0
             feedback.pushInfo("No nodata value found, using -9999.0")
 
-        # Read raster block
-        block = provider.block(1, extent, cols, rows)
+        from osgeo import gdal, osr
 
-        # Convert to numpy array
         feedback.pushInfo("Reading raster data...")
-        dsm = np.zeros((rows, cols), dtype=np.float32)
-        for r in range(rows):
-            if feedback.isCanceled():
-                return {}
-            for c in range(cols):
-                dsm[r, c] = block.value(r, c)
+        src_ds = gdal.Open(input_layer.source())
+        if src_ds is None:
+            raise QgsProcessingException(f"Could not open input raster: {input_layer.source()}")
+
+        input_crs = input_layer.crs()
+        utm_warp_ctx = None
+
+        try:
+            if input_crs.isGeographic():
+                center_lon = (extent.xMinimum() + extent.xMaximum()) / 2.0
+                center_lat = (extent.yMinimum() + extent.yMaximum()) / 2.0
+                utm_epsg = _utm_epsg_for(center_lon, center_lat)
+                feedback.pushInfo(
+                    f"Input is geographic ({input_crs.authid()}). Reprojecting to EPSG:{utm_epsg} for processing..."
+                )
+
+                utm_ds = gdal.Warp(
+                    "",
+                    src_ds,
+                    format="MEM",
+                    dstSRS=f"EPSG:{utm_epsg}",
+                    srcNodata=nodata,
+                    dstNodata=nodata,
+                    resampleAlg=gdal.GRA_Bilinear,
+                )
+                if utm_ds is None:
+                    raise QgsProcessingException(f"Failed to reproject input to EPSG:{utm_epsg}")
+
+                dsm = utm_ds.GetRasterBand(1).ReadAsArray()
+                if dsm is None:
+                    raise QgsProcessingException("Failed to read reprojected raster data")
+                dsm = np.ascontiguousarray(dsm, dtype=np.float32)
+
+                gt = utm_ds.GetGeoTransform()
+                resolution = (abs(gt[1]), abs(gt[5]))
+                utm_warp_ctx = {
+                    "geotransform": gt,
+                    "projection": utm_ds.GetProjection(),
+                    "cols": utm_ds.RasterXSize,
+                    "rows": utm_ds.RasterYSize,
+                }
+                utm_ds = None
+            else:
+                dsm = src_ds.GetRasterBand(1).ReadAsArray()
+                if dsm is None:
+                    raise QgsProcessingException("Failed to read raster band data")
+                dsm = np.ascontiguousarray(dsm, dtype=np.float32)
+                resolution = (extent.width() / cols, extent.height() / rows)
+        finally:
+            src_ds = None
+
+        if feedback.isCanceled():
+            return {}
 
         feedback.setProgress(10)
 
-        # Get resolution
-        x_res = extent.width() / cols
-        y_res = extent.height() / rows
-        resolution = (x_res, y_res)
-        feedback.pushInfo(f"Resolution: {x_res:.2f}m x {y_res:.2f}m")
+        x_res, y_res = resolution
+        feedback.pushInfo(f"Processing resolution: {x_res:.4f}m x {y_res:.4f}m")
 
         feedback.pushInfo("Running DSM to DTM conversion...")
 
@@ -170,36 +218,52 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
         feedback.setProgress(80)
         feedback.pushInfo("Writing output raster...")
 
-        # Write output using GDAL (native to QGIS)
-        from osgeo import gdal, osr
+        if utm_warp_ctx is not None:
+            mem_drv = gdal.GetDriverByName("MEM")
+            utm_dtm_ds = mem_drv.Create("", utm_warp_ctx["cols"], utm_warp_ctx["rows"], 1, gdal.GDT_Float32)
+            utm_dtm_ds.SetGeoTransform(utm_warp_ctx["geotransform"])
+            utm_dtm_ds.SetProjection(utm_warp_ctx["projection"])
+            utm_band = utm_dtm_ds.GetRasterBand(1)
+            utm_band.WriteArray(dtm)
+            utm_band.SetNoDataValue(float(nodata))
 
-        driver = gdal.GetDriverByName("GTiff")
-        out_ds = driver.Create(output_path, cols, rows, 1, gdal.GDT_Float32)
-        if out_ds is None:
-            raise QgsProcessingException(f"Could not create output file: {output_path}")
+            out_ds = gdal.Warp(
+                output_path,
+                utm_dtm_ds,
+                format="GTiff",
+                dstSRS=input_layer.crs().toWkt(),
+                outputBounds=(extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum()),
+                width=cols,
+                height=rows,
+                srcNodata=nodata,
+                dstNodata=nodata,
+                resampleAlg=gdal.GRA_Bilinear,
+            )
+            utm_dtm_ds = None
+            if out_ds is None:
+                raise QgsProcessingException(f"Could not create output file: {output_path}")
+            out_ds = None
+        else:
+            driver = gdal.GetDriverByName("GTiff")
+            out_ds = driver.Create(output_path, cols, rows, 1, gdal.GDT_Float32)
+            if out_ds is None:
+                raise QgsProcessingException(f"Could not create output file: {output_path}")
 
-        # Set transform
-        xmin = extent.xMinimum()
-        ymax = extent.yMaximum()
-        pixel_width = extent.width() / cols
-        pixel_height = extent.height() / rows
-        # GDAL transform: [top_left_x, w_resolution, 0, top_left_y, 0, n_s_resolution (negative)]
-        out_transform = [xmin, pixel_width, 0.0, ymax, 0.0, -pixel_height]
-        out_ds.SetGeoTransform(out_transform)
+            xmin = extent.xMinimum()
+            ymax = extent.yMaximum()
+            pixel_width = extent.width() / cols
+            pixel_height = extent.height() / rows
+            out_ds.SetGeoTransform([xmin, pixel_width, 0.0, ymax, 0.0, -pixel_height])
 
-        # Set projection
-        srs = osr.SpatialReference()
-        srs.ImportFromWkt(input_layer.crs().toWkt())
-        out_ds.SetProjection(srs.ExportToWkt())
+            srs = osr.SpatialReference()
+            srs.ImportFromWkt(input_layer.crs().toWkt())
+            out_ds.SetProjection(srs.ExportToWkt())
 
-        # Write data
-        out_band = out_ds.GetRasterBand(1)
-        out_band.WriteArray(dtm)
-        out_band.SetNoDataValue(float(nodata))
-
-        # Close dataset to flush to disk
-        out_band.FlushCache()
-        out_ds = None
+            out_band = out_ds.GetRasterBand(1)
+            out_band.WriteArray(dtm)
+            out_band.SetNoDataValue(float(nodata))
+            out_band.FlushCache()
+            out_ds = None
 
         feedback.setProgress(100)
         feedback.pushInfo("Done!")
