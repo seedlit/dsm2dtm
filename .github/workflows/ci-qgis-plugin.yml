@@ -1,0 +1,136 @@
+name: QGIS Plugin
+
+on:
+  push:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-run:
+    name: Build & run plugin in QGIS
+    runs-on: ubuntu-latest
+    container:
+      image: qgis/qgis:stable
+      options: --user root
+
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show QGIS / GDAL versions
+        run: |
+          qgis_process --version
+          python3 -c "from osgeo import gdal; print('GDAL', gdal.__version__)"
+
+      - name: Build plugin ZIP
+        run: |
+          python3 qgis_plugin/scripts/build_plugin.py
+          test -f qgis_plugin/dist/dsm2dtm_qgis_plugin.zip
+
+      - name: Install plugin from ZIP into QGIS profile
+        run: |
+          PLUGIN_DIR="$HOME/.local/share/QGIS/QGIS3/profiles/default/python/plugins"
+          mkdir -p "$PLUGIN_DIR"
+          apt-get update -qq && apt-get install -y -qq unzip xvfb >/dev/null
+          unzip -q qgis_plugin/dist/dsm2dtm_qgis_plugin.zip -d "$PLUGIN_DIR"
+          test -f "$PLUGIN_DIR/dsm2dtm/processing_algorithm.py"
+          test -d "$PLUGIN_DIR/dsm2dtm/ext_libs/dsm2dtm_core"
+
+      - name: Enable plugin and verify it registers
+        run: |
+          xvfb-run -a qgis_process plugins enable dsm2dtm
+          xvfb-run -a qgis_process plugins list | grep -i dsm2dtm
+          xvfb-run -a qgis_process list | grep -i "dsm2dtm:dsm_to_dtm"
+
+      - name: Generate synthetic DSMs (projected + geographic)
+        run: |
+          mkdir -p /tmp/plugin-ci
+          python3 - <<'PY'
+          import numpy as np
+          from osgeo import gdal, osr
+
+          rows, cols = 200, 200
+          rng = np.random.default_rng(42)
+          terrain = (
+              100.0
+              + 0.05 * np.arange(rows, dtype=np.float32)[:, None]
+              + 0.03 * np.arange(cols, dtype=np.float32)[None, :]
+              + rng.normal(0.0, 0.2, (rows, cols)).astype(np.float32)
+          )
+          terrain[40:70, 40:70] += 18.0
+          terrain[120:135, 120:135] += 12.0
+          dsm = terrain.astype(np.float32)
+
+          drv = gdal.GetDriverByName("GTiff")
+
+          ds = drv.Create("/tmp/plugin-ci/dsm_utm.tif", cols, rows, 1, gdal.GDT_Float32)
+          ds.SetGeoTransform([500000.0, 1.0, 0.0, 4500000.0, 0.0, -1.0])
+          srs = osr.SpatialReference(); srs.ImportFromEPSG(32631)
+          ds.SetProjection(srs.ExportToWkt())
+          ds.GetRasterBand(1).WriteArray(dsm)
+          ds = None
+
+          ds = drv.Create("/tmp/plugin-ci/dsm_geo.tif", cols, rows, 1, gdal.GDT_Float32)
+          deg = 1.0 / 111320.0
+          ds.SetGeoTransform([10.0, deg, 0.0, 50.0, 0.0, -deg])
+          srs = osr.SpatialReference(); srs.ImportFromEPSG(4326)
+          ds.SetProjection(srs.ExportToWkt())
+          ds.GetRasterBand(1).WriteArray(dsm)
+          ds = None
+          PY
+
+      - name: Run plugin on projected raster
+        run: |
+          xvfb-run -a qgis_process run dsm2dtm:dsm_to_dtm \
+            --INPUT=/tmp/plugin-ci/dsm_utm.tif \
+            --RADIUS=20 --SLOPE=0 \
+            --OUTPUT=/tmp/plugin-ci/dtm_utm.tif
+
+      - name: Run plugin on geographic raster
+        run: |
+          xvfb-run -a qgis_process run dsm2dtm:dsm_to_dtm \
+            --INPUT=/tmp/plugin-ci/dsm_geo.tif \
+            --RADIUS=20 --SLOPE=0 \
+            --OUTPUT=/tmp/plugin-ci/dtm_geo.tif 2>&1 | tee /tmp/plugin-ci/geo.log
+          grep -i "is geographic" /tmp/plugin-ci/geo.log
+
+      - name: Validate outputs
+        run: |
+          python3 - <<'PY'
+          from osgeo import gdal
+
+          for label, path, expect_epsg in [
+              ("projected", "/tmp/plugin-ci/dtm_utm.tif", 32631),
+              ("geographic", "/tmp/plugin-ci/dtm_geo.tif", 4326),
+          ]:
+              ds = gdal.Open(path)
+              assert ds is not None, f"{label}: output missing"
+              arr = ds.GetRasterBand(1).ReadAsArray()
+              assert arr.shape == (200, 200), f"{label}: shape {arr.shape}"
+
+              from osgeo import osr
+              srs = osr.SpatialReference(); srs.ImportFromWkt(ds.GetProjection())
+              code = int(srs.GetAuthorityCode(None))
+              assert code == expect_epsg, f"{label}: CRS {code} != {expect_epsg}"
+
+              tall_block = arr[55, 55]
+              flat_corner = arr[5, 5]
+              assert tall_block < flat_corner + 5.0, (
+                  f"{label}: building not removed (block={tall_block}, corner={flat_corner})"
+              )
+              print(f"OK {label}: shape={arr.shape}, EPSG={code}, block={tall_block:.2f}, corner={flat_corner:.2f}")
+          PY
+
+      - name: Upload outputs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-ci-outputs
+          path: /tmp/plugin-ci/
+          if-no-files-found: ignore
