@@ -28,6 +28,9 @@ jobs:
           qgis_process --version
           python3 -c "from osgeo import gdal; print('GDAL', gdal.__version__)"
 
+      - name: Verify vendored copy is in sync with src/
+        run: python3 qgis_plugin/scripts/build_plugin.py --check
+
       - name: Build plugin ZIP
         run: |
           python3 qgis_plugin/scripts/build_plugin.py
@@ -125,6 +128,22 @@ jobs:
                   f"{label}: building not removed (block={tall_block}, corner={flat_corner})"
               )
               print(f"OK {label}: shape={arr.shape}, EPSG={code}, block={tall_block:.2f}, corner={flat_corner:.2f}")
+          PY
+
+      - name: Compare projected vs geographic outputs (numerical parity)
+        run: |
+          python3 - <<'PY'
+          import numpy as np
+          from osgeo import gdal
+
+          a = gdal.Open("/tmp/plugin-ci/dtm_utm.tif").GetRasterBand(1).ReadAsArray()
+          b = gdal.Open("/tmp/plugin-ci/dtm_geo.tif").GetRasterBand(1).ReadAsArray()
+          # Same synthetic DSM, same parameters; the geographic path adds a
+          # geographic <-> UTM round trip. Allow up to 2 m RMSE for that.
+          mask = np.isfinite(a) & np.isfinite(b) & (a != -9999.0) & (b != -9999.0)
+          rmse = float(np.sqrt(np.mean((a[mask] - b[mask]) ** 2)))
+          print(f"projected vs geographic RMSE: {rmse:.4f} m")
+          assert rmse < 2.0, f"projected vs geographic outputs diverge: RMSE={rmse:.4f} m"
           PY
 
       - name: Upload outputs on failure
