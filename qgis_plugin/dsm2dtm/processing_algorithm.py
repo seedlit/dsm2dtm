@@ -14,12 +14,7 @@ from qgis.core import (
 
 
 def _utm_epsg_for(lon: float, lat: float) -> int:
-    """EPSG code for the standard UTM zone containing (lon, lat).
-
-    Wraps lon=180 to zone 1 (the antimeridian), matching the convention used by
-    proj/UTM tooling. Returns 326xx for the northern hemisphere, 327xx for the
-    southern.
-    """
+    """EPSG of the UTM zone for (lon, lat). Wraps lon=180 to zone 1."""
     zone = int((lon + 180.0) / 6.0) % 60 + 1
     base = 32700 if lat < 0 else 32600
     return base + zone
@@ -131,7 +126,6 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
         feedback.pushInfo(f"Processing: {input_layer.source()}")
         feedback.pushInfo(f"Radius: {radius}m, Slope: {'auto' if slope == 0 else slope}")
 
-        # Read raster data using QGIS/GDAL
         provider = input_layer.dataProvider()
         extent = input_layer.extent()
         rows = input_layer.height()
@@ -145,9 +139,6 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
             nodata = -9999.0
             feedback.pushInfo("No nodata value found, using -9999.0")
 
-        # Read raster data via GDAL's NumPy bridge — single call, native speed.
-        # The previous pixel-by-pixel block.value() loop was O(rows*cols) Python calls
-        # and unusable on real rasters (~10^8 calls for a 10k x 10k input).
         from osgeo import gdal, osr
 
         feedback.pushInfo("Reading raster data...")
@@ -155,11 +146,8 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
         if src_ds is None:
             raise QgsProcessingException(f"Could not open input raster: {input_layer.source()}")
 
-        # The PMF algorithm interprets cell_size as meters, so geographic (lat/lon)
-        # rasters must be reprojected to a metric CRS first. We pick the appropriate
-        # UTM zone, warp to it, process, and warp the result back at write time.
         input_crs = input_layer.crs()
-        utm_warp_ctx = None  # filled when we reproject; tells the writer to warp back
+        utm_warp_ctx = None
 
         try:
             if input_crs.isGeographic():
@@ -189,7 +177,6 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
 
                 gt = utm_ds.GetGeoTransform()
                 resolution = (abs(gt[1]), abs(gt[5]))
-                # Save what we need to warp the DTM back at write time.
                 utm_warp_ctx = {
                     "geotransform": gt,
                     "projection": utm_ds.GetProjection(),
@@ -204,7 +191,7 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
                 dsm = np.ascontiguousarray(dsm, dtype=np.float32)
                 resolution = (extent.width() / cols, extent.height() / rows)
         finally:
-            src_ds = None  # close source
+            src_ds = None
 
         if feedback.isCanceled():
             return {}
@@ -232,8 +219,6 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
         feedback.pushInfo("Writing output raster...")
 
         if utm_warp_ctx is not None:
-            # Geographic input: dtm is in UTM. Wrap it in a MEM dataset, then warp
-            # back to the original CRS, matching the input raster's grid exactly.
             mem_drv = gdal.GetDriverByName("MEM")
             utm_dtm_ds = mem_drv.Create("", utm_warp_ctx["cols"], utm_warp_ctx["rows"], 1, gdal.GDT_Float32)
             utm_dtm_ds.SetGeoTransform(utm_warp_ctx["geotransform"])
@@ -259,7 +244,6 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
                 raise QgsProcessingException(f"Could not create output file: {output_path}")
             out_ds = None
         else:
-            # Projected input: write the DTM directly with the input grid.
             driver = gdal.GetDriverByName("GTiff")
             out_ds = driver.Create(output_path, cols, rows, 1, gdal.GDT_Float32)
             if out_ds is None:
