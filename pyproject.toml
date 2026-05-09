@@ -26,11 +26,10 @@ classifiers = [
     "Development Status :: 4 - Beta",
 ]
 dependencies = [
-    "numpy",
-    "rasterio",
-    "scipy",
-    "scikit-image",
-    "pyproj",
+    "numpy>=1.21",
+    "rasterio>=1.3",
+    "scipy>=1.8",
+    "pyproj>=3.4",
 ]
 
 [project.urls]
