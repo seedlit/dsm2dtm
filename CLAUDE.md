@@ -35,3 +35,29 @@ For end-to-end testing the same fixtures CI uses are at:
 https://github.com/seedlit/dsm2dtm/releases/tag/test-data-v0.1
 
 Includes paired DSM/DTM rasters across resolutions (1m Istanbul hilly urban, 50cm river+urban, 50cm vegetation+urban). Download the ZIP, extract, and feed individual DSMs to the CLI or QGIS plugin to validate end-to-end behavior.
+
+### Live testing the QGIS plugin (mandatory for plugin changes)
+
+QGIS is installed locally at `/Applications/QGIS.app`. Any change under `qgis_plugin/` MUST be exercised through real QGIS — proxy testing via rasterio is not enough (different code paths, no actual `osgeo` import, no QGIS feedback object).
+
+Setup (one-time per machine):
+1. Symlink the dev plugin into the QGIS profile:
+   ```
+   ln -s "$(pwd)/qgis_plugin/dsm2dtm" "$HOME/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/dsm2dtm"
+   ```
+   (Move any existing `dsm2dtm` install aside first.)
+2. Stage test data under `/tmp/` — `qgis_process` cannot read `~/Library/Caches/` on macOS due to sandboxing.
+
+Per-change verification:
+```
+/Applications/QGIS.app/Contents/MacOS/bin/qgis_process run dsm2dtm:dsm_to_dtm \
+  --INPUT=/tmp/dsm2dtm_livetest/<file>.tif \
+  --RADIUS=40 --SLOPE=0 \
+  --OUTPUT=/tmp/dsm2dtm_livetest/dtm_out.tif
+```
+
+Test BOTH a projected CRS input AND a geographic CRS input (re-warp one of the release fixtures with `gdalwarp -t_srs EPSG:4326`). Confirm:
+- the run completes,
+- the geographic case logs `Input is geographic ... Reprojecting to EPSG:...`,
+- output preserves the input CRS, shape, and bounds,
+- a meaningful fraction of cells had height removed (`DSM - DTM > 5m` for many cells).
