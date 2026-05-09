@@ -136,8 +136,10 @@ jobs:
           import numpy as np
           from osgeo import gdal
 
-          a = gdal.Open("/tmp/plugin-ci/dtm_utm.tif").GetRasterBand(1).ReadAsArray()
-          b = gdal.Open("/tmp/plugin-ci/dtm_geo.tif").GetRasterBand(1).ReadAsArray()
+          ds_a = gdal.Open("/tmp/plugin-ci/dtm_utm.tif")
+          ds_b = gdal.Open("/tmp/plugin-ci/dtm_geo.tif")
+          a = ds_a.GetRasterBand(1).ReadAsArray()
+          b = ds_b.GetRasterBand(1).ReadAsArray()
           # Same synthetic DSM, same parameters; the geographic path adds a
           # geographic <-> UTM round trip. Allow up to 2 m RMSE for that.
           mask = np.isfinite(a) & np.isfinite(b) & (a != -9999.0) & (b != -9999.0)
