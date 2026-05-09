@@ -16,6 +16,8 @@
 
 5. **Surface failures honestly.** If a verification step fails or is skipped, say so clearly. No "it should work" claims.
 
+6. **Don't add verbose comments.** Default to no comments. Trust well-named identifiers and docstrings. Only add a comment when the WHY is non-obvious (a hidden constraint, a workaround, surprising behavior). Never restate WHAT the code does (`# Get parameters`, `# close source`, `# Read raster data`). Never write multi-line block comments to explain a section — if a section needs that much explanation, it probably needs to be a function with a one-line docstring.
+
 ## Project context
 
 - Python library + QGIS plugin for DSM → DTM conversion via Progressive Morphological Filter.
