@@ -6,7 +6,7 @@ import sys
 # Add vendored libraries to path BEFORE any imports
 _ext_libs = os.path.join(os.path.dirname(__file__), "ext_libs")
 if _ext_libs not in sys.path:
-    sys.path.insert(0, _ext_libs)
+    sys.path.append(_ext_libs)
 
 
 def classFactory(iface):
