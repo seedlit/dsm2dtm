@@ -1,24 +1,19 @@
 """
 Core algorithms for DSM to DTM conversion.
+
+Pure numpy + scipy: no rasterio dependency. The QGIS plugin vendors this module
+verbatim, so any I/O (raster open, reproject, write) must live in callers
+(`core.py` for the library, `processing_algorithm.py` for the plugin).
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
-from rasterio.crs import CRS
-from rasterio.fill import fillnodata
-from rasterio.transform import Affine
-from rasterio.warp import Resampling, reproject
-from scipy.ndimage import gaussian_filter, grey_opening, zoom
-
-# Backward compatibility for numpy < 1.21 (QGIS uses 1.20)
-if TYPE_CHECKING:
-    from numpy.typing import NDArray
-else:
-    NDArray = np.ndarray
+from scipy.ndimage import distance_transform_edt, gaussian_filter, grey_opening, zoom
 
 from dsm2dtm.constants import (
     DEFAULT_NODATA,
@@ -34,6 +29,14 @@ from dsm2dtm.constants import (
     REFINEMENT_ELEVATION_THRESHOLD,
     REFINEMENT_SMOOTH_SIGMA_METERS,
 )
+
+logger = logging.getLogger(__name__)
+
+# Backward compatibility for numpy < 1.21 (QGIS uses 1.20)
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+else:
+    NDArray = np.ndarray
 
 
 @dataclass
@@ -98,7 +101,7 @@ def calculate_terrain_slope(dsm: NDArray[np.floating], resolution: float, nodata
     # np.nanmedian handles this automatically.
     valid_slopes = slope_dimensionless[valid_mask]
 
-    if len(valid_slopes) == 0 or np.all(np.isnan(valid_slopes)):
+    if np.all(np.isnan(valid_slopes)):
         return PMF_SLOPE
 
     # Use Median instead of Mean for robustness against outliers (vertical walls)
@@ -253,8 +256,8 @@ def _process_coarse_dsm(
     dsm: NDArray[np.floating],
     cell_size: float,
     nodata: float,
-    kernel_radius_meters: Optional[float],
-    slope: Optional[float],
+    kernel_radius_meters: float | None,
+    slope: float | None,
     initial_threshold: float,
     max_threshold: float,
 ) -> NDArray[np.floating]:
@@ -292,32 +295,26 @@ def _process_coarse_dsm(
             dsm, cell_size, nodata, kernel_radius_meters, slope, initial_threshold, max_threshold
         )
 
-    print(
-        f"High resolution input ({cell_size:.4f}m). "
-        f"Downsampling to {MIN_PROCESSING_RESOLUTION_METERS}m for processing stability..."
+    logger.info(
+        "High resolution input (%.4fm). Downsampling to %sm for processing stability...",
+        cell_size,
+        MIN_PROCESSING_RESOLUTION_METERS,
     )
 
-    # Transforms (Dummy, 0,0 origin)
-    src_transform = Affine.scale(cell_size, cell_size)
-    dst_transform = Affine.scale(target_res, target_res)
-    dummy_crs = CRS.from_epsg(3857)
+    valid_mask = dsm != nodata
+    invalid_mask = ~valid_mask
+    if not np.any(valid_mask):
+        return dsm.copy()
 
-    dsm_coarse = np.empty((new_h, new_w), dtype=np.float32)
+    # Nearest-neighbor fill before zooming so bilinear interpolation
+    # doesn't smear the nodata sentinel into valid neighbors.
+    dsm_filled = dsm.copy()
+    if np.any(invalid_mask):
+        _, ind = distance_transform_edt(invalid_mask, return_distances=True, return_indices=True)
+        dsm_filled = dsm_filled[tuple(ind)]
 
-    reproject(
-        source=dsm,
-        destination=dsm_coarse,
-        src_transform=src_transform,
-        src_crs=dummy_crs,
-        dst_transform=dst_transform,
-        dst_crs=dummy_crs,
-        resampling=Resampling.bilinear,
-        src_nodata=nodata,
-        dst_nodata=nodata,
-    )
+    dsm_coarse = zoom(dsm_filled, scale, order=1)
 
-    # Recursive call with coarser resolution
-    # We pass slope=None to let it re-calculate/adapt to coarse DTM
     dtm_coarse = dsm_to_dtm(
         dsm_coarse,
         (target_res, target_res),
@@ -328,21 +325,24 @@ def _process_coarse_dsm(
         nodata=nodata,
     )
 
-    # Upsample Result back to original size
-    dtm_fine = np.empty((h, w), dtype=np.float32)
+    # Fill nodata in dtm_coarse before bilinear upsample so the sentinel
+    # doesn't smear into valid neighbours (BUG-58).
+    coarse_invalid = dtm_coarse == nodata
+    if np.any(coarse_invalid) and not np.all(coarse_invalid):
+        _, ind_c = distance_transform_edt(coarse_invalid, return_distances=True, return_indices=True)
+        dtm_coarse_filled = dtm_coarse[tuple(ind_c)]
+    else:
+        dtm_coarse_filled = dtm_coarse
 
-    reproject(
-        source=dtm_coarse,
-        destination=dtm_fine,
-        src_transform=dst_transform,  # Coarse
-        src_crs=dummy_crs,
-        dst_transform=src_transform,  # Original
-        dst_crs=dummy_crs,
-        resampling=Resampling.bilinear,
-        src_nodata=nodata,
-        dst_nodata=nodata,
-    )
+    dtm_fine = zoom(dtm_coarse_filled, (h / dtm_coarse_filled.shape[0], w / dtm_coarse_filled.shape[1]), order=1)
+    # scipy.ndimage.zoom can be off by one — clamp/pad to the expected shape.
+    dtm_fine = dtm_fine[:h, :w]
+    if dtm_fine.shape != (h, w):
+        padded = np.full((h, w), nodata, dtype=dtm_fine.dtype)
+        padded[: dtm_fine.shape[0], : dtm_fine.shape[1]] = dtm_fine
+        dtm_fine = padded
 
+    dtm_fine[invalid_mask] = nodata
     return dtm_fine
 
 
@@ -350,8 +350,8 @@ def _process_standard_dsm(
     dsm: NDArray[np.floating],
     cell_size: float,
     nodata: float,
-    kernel_radius_meters: Optional[float],
-    slope: Optional[float],
+    kernel_radius_meters: float | None,
+    slope: float | None,
     initial_threshold: float,
     max_threshold: float,
 ) -> NDArray[np.floating]:
@@ -389,11 +389,8 @@ def _process_standard_dsm(
 
     # Override max window if kernel_radius_meters provided
     if kernel_radius_meters is not None:
-        if cell_size < 0.01:
-            # Fallback for un-projected Degree data (Lat/Lon).
-            res_meters = cell_size * 111320.0
-        else:
-            res_meters = cell_size
+        # Fallback for un-projected Degree data (Lat/Lon): convert via the equator constant.
+        res_meters = cell_size * 111320.0 if cell_size < 0.01 else cell_size
         res_meters = max(res_meters, 0.001)
 
         max_window_px = int(kernel_radius_meters / res_meters) * 2 + 1
@@ -431,15 +428,19 @@ def _process_standard_dsm(
         smoothed = gaussian_filter(smooth_input, sigma=params.final_smooth_sigma)
         ground = np.where(valid_mask, smoothed, nodata)
 
-    # Step 4: Gap interpolation
-    mask = (ground != nodata).astype(np.uint8)
-    dtm = ground.copy().astype(np.float32)
-    fillnodata(
-        dtm,
-        mask=mask,
-        max_search_distance=params.gap_fill_search_dist,
-        smoothing_iterations=GAP_FILL_SMOOTHING_ITERATIONS,
-    )
+    # Step 4: Gap interpolation. Only fill cells within `gap_fill_search_dist`
+    # pixels of a valid neighbour — preserves nodata over large holes (water
+    # bodies, coverage gaps) instead of stamping them with a single far-away value.
+    invalid_mask = ground == nodata
+    dtm = ground.astype(np.float32, copy=True)
+    if np.any(invalid_mask) and np.any(valid_mask):
+        distances, ind = distance_transform_edt(invalid_mask, return_distances=True, return_indices=True)
+        within_range = invalid_mask & (distances <= params.gap_fill_search_dist)
+        if np.any(within_range):
+            filled = dtm[tuple(ind)]
+            if GAP_FILL_SMOOTHING_ITERATIONS > 0:
+                filled = gaussian_filter(filled, sigma=1.0)
+            dtm[within_range] = filled[within_range]
 
     return dtm
 
@@ -447,8 +448,8 @@ def _process_standard_dsm(
 def dsm_to_dtm(
     dsm: NDArray[np.floating],
     resolution: Tuple[float, float],
-    kernel_radius_meters: Optional[float] = None,
-    slope: Optional[float] = None,
+    kernel_radius_meters: float | None = None,
+    slope: float | None = None,
     initial_threshold: float = PMF_INITIAL_THRESHOLD,
     max_threshold: float = PMF_MAX_THRESHOLD,
     nodata: float = DEFAULT_NODATA,

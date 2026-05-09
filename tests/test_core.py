@@ -45,7 +45,6 @@ def test_generate_dtm_numerical_properties(synthetic_dsm_path):
     assert isinstance(dtm, np.ndarray)
     assert isinstance(profile, Mapping)
     assert dtm.shape == (100, 100)
-    assert dtm.shape == (100, 100)
     # Building area (center) should be removed (i.e., < 120.0, close to 100.0)
     center_val = dtm[50, 50]
     assert center_val < 110.0, f"Building not removed, elev={center_val}"
@@ -83,7 +82,7 @@ def test_calculate_terrain_slope_gradient():
     # 1m rise per 1m run in x-direction
     x = np.linspace(0, 9, 10)
     y = np.linspace(0, 9, 10)
-    xv, yv = np.meshgrid(x, y)
+    xv, _yv = np.meshgrid(x, y)
     dsm = xv.astype(np.float32)  # z = x
     resolution = 1.0
     nodata = -9999.0
@@ -191,7 +190,7 @@ def test_generate_dtm_with_object(synthetic_dsm_path):
     """Test generating DTM from an open rasterio dataset object."""
     with rasterio.open(synthetic_dsm_path) as src:
         # Pass the object instead of path
-        dtm, profile = core.generate_dtm(src)
+        dtm, _profile = core.generate_dtm(src)
 
         assert isinstance(dtm, np.ndarray)
         assert dtm.shape == (src.height, src.width)

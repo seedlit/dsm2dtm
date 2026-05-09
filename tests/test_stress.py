@@ -17,17 +17,20 @@ def add_building(data, x, y, w, h, height=20.0):
     data[y : y + h, x : x + w] += height
 
 
+_RNG = np.random.default_rng(seed=42)
+
+
 def add_noise(data, magnitude=1.0):
     """Adds Gaussian noise."""
-    noise = np.random.normal(0, magnitude, data.shape).astype(np.float32)
+    noise = _RNG.normal(0, magnitude, data.shape).astype(np.float32)
     data += noise
 
 
 def add_vegetation(data, density=0.1, height_range=(2.0, 10.0)):
     """Adds scattered spikes (vegetation)."""
     num_trees = int(data.size * density)
-    idx = np.random.choice(data.size, num_trees, replace=False)
-    heights = np.random.uniform(height_range[0], height_range[1], num_trees)
+    idx = _RNG.choice(data.size, num_trees, replace=False)
+    heights = _RNG.uniform(height_range[0], height_range[1], num_trees)
     data.ravel()[idx] += heights
 
 
@@ -141,7 +144,7 @@ def test_sparse_ground_points():
     dsm = np.full(shape, 120.0, dtype=np.float32)
     # Bore holes to ground (100.0), only 5% of the points are ground
     num_ground = int(shape[0] * shape[1] * 0.05)
-    idx = np.random.choice(dsm.size, num_ground, replace=False)
+    idx = _RNG.choice(dsm.size, num_ground, replace=False)
     dsm.ravel()[idx] = 100.0
     # If window size is large enough to bridge the buildings, it should find ground.
     # Default radius is 40m.
@@ -160,7 +163,7 @@ def test_heavy_nodata_coverage():
     dsm = create_synthetic_array(shape, base_val=100.0)
     nodata = -9999.0
     # Mask 60%
-    mask_idx = np.random.choice(dsm.size, int(dsm.size * 0.6), replace=False)
+    mask_idx = _RNG.choice(dsm.size, int(dsm.size * 0.6), replace=False)
     dsm.ravel()[mask_idx] = nodata
     dtm = dsm_to_dtm(dsm, resolution=(1.0, 1.0), nodata=nodata)
     valid_dsm = np.sum(dsm != nodata)
@@ -178,8 +181,6 @@ def test_checkerboard_nodata_pattern():
     checker = np.indices(shape).sum(axis=0) % 2
     dsm[checker == 1] = nodata
     dtm = dsm_to_dtm(dsm, resolution=(1.0, 1.0), nodata=nodata)
-    valid_fraction = np.mean(dtm != nodata)
-    assert valid_fraction > 0.95
     valid_fraction = np.mean(dtm != nodata)
     assert valid_fraction > 0.95
 
