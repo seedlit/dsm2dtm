@@ -18,6 +18,13 @@
 
 6. **Don't add verbose comments.** Default to no comments. Trust well-named identifiers and docstrings. Only add a comment when the WHY is non-obvious (a hidden constraint, a workaround, surprising behavior). Never restate WHAT the code does (`# Get parameters`, `# close source`, `# Read raster data`). Never write multi-line block comments to explain a section — if a section needs that much explanation, it probably needs to be a function with a one-line docstring.
 
+7. **Use the right tools to verify currency.** Before writing API code (especially against external libraries — rasterio, GDAL, scipy, QGIS Processing, GitHub Actions, etc.), reach for the resources that confirm we're using current, correct usage:
+   - `context7` MCP — fetch current docs for the specific library/version we depend on; preferred over recall for any library API.
+   - Web search / `WebFetch` — release notes, deprecation warnings, GitHub issues, recent Stack Overflow answers.
+   - Available skills (`Skill` tool) — invoke any that fit the task (debugging, brainstorming, frontend-design, etc.).
+   - Plugins / subagents (`Agent`, `Explore`) — for cross-cutting research and parallel investigation.
+   Cite the source when a non-obvious choice is driven by it.
+
 ## Project context
 
 - Python library + QGIS plugin for DSM → DTM conversion via Progressive Morphological Filter.
