@@ -2,8 +2,9 @@
 
 The library (`src/dsm2dtm/`) and the vendored plugin core
 (`qgis_plugin/dsm2dtm/ext_libs/dsm2dtm_core/`) MUST produce numerically
-equivalent DTMs from the same input. They have diverged before
-(BUG-43); this test is the safety net that catches future drift.
+equivalent DTMs from the same input. The two diverged in the past
+(BUG-43, fixed by making `algorithm.py` rasterio-free so it can be
+vendored verbatim); this test is the safety net that catches future drift.
 """
 
 import importlib
@@ -71,7 +72,6 @@ def test_parity_synthetic_smooth(cli_dsm_to_dtm, plugin_dsm_to_dtm):
     _assert_parity(cli_dtm, plugin_dtm, "synthetic-smooth")
 
 
-@pytest.mark.xfail(strict=True, reason="BUG-43: vendored plugin core diverges from src/ — flip xfail off when unified")
 def test_parity_synthetic_auto_slope(cli_dsm_to_dtm, plugin_dsm_to_dtm):
     dsm = _synthetic_dsm(seed=7)
     resolution = (1.0, 1.0)
@@ -80,7 +80,6 @@ def test_parity_synthetic_auto_slope(cli_dsm_to_dtm, plugin_dsm_to_dtm):
     _assert_parity(cli_dtm, plugin_dtm, "synthetic-auto-slope")
 
 
-@pytest.mark.xfail(strict=True, reason="BUG-43: vendored plugin core diverges from src/ — flip xfail off when unified")
 def test_parity_with_nodata(cli_dsm_to_dtm, plugin_dsm_to_dtm):
     dsm = _synthetic_dsm(seed=11)
     dsm[80:90, :] = -9999.0
@@ -92,7 +91,6 @@ def test_parity_with_nodata(cli_dsm_to_dtm, plugin_dsm_to_dtm):
     _assert_parity(cli_dtm[valid], plugin_dtm[valid], "with-nodata (valid cells)")
 
 
-@pytest.mark.xfail(strict=True, reason="BUG-43: vendored plugin core diverges from src/ — flip xfail off when unified")
 def test_parity_release_fixture(cli_dsm_to_dtm, plugin_dsm_to_dtm, test_data_dir):
     """Both implementations must match on a real DSM tile from the release fixtures."""
     dsm_path = test_data_dir / "dsm_1m_istanbul_hilly_urban.tif"

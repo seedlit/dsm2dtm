@@ -7,9 +7,10 @@ Author: Naman Jain
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Tuple, Union
 
 import numpy as np
 import rasterio
@@ -17,12 +18,6 @@ from rasterio.crs import CRS
 from rasterio.io import DatasetReader
 from rasterio.transform import Affine
 from rasterio.warp import Resampling, calculate_default_transform, reproject
-
-# Backward compatibility for numpy < 1.21 (QGIS uses 1.20)
-if TYPE_CHECKING:
-    from numpy.typing import NDArray
-else:
-    NDArray = np.ndarray
 
 from dsm2dtm.algorithm import dsm_to_dtm
 from dsm2dtm.constants import (
@@ -32,6 +27,14 @@ from dsm2dtm.constants import (
     PMF_MAX_THRESHOLD,
 )
 from dsm2dtm.utm_utils import estimate_utm_crs
+
+logger = logging.getLogger(__name__)
+
+# Backward compatibility for numpy < 1.21 (QGIS uses 1.20)
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+else:
+    NDArray = np.ndarray
 
 
 @dataclass
@@ -43,18 +46,21 @@ class DSMContext:
     nodata: float
     resolution: Tuple[float, float]
     is_reprojected: bool = False
-    original_crs: Optional[CRS] = None
-    original_transform: Optional[Affine] = None
-    original_shape: Optional[Tuple[int, int]] = None  # (height, width)
-    utm_crs: Optional[CRS] = None
-    utm_transform: Optional[Affine] = None
+    original_crs: CRS | None = None
+    original_transform: Affine | None = None
+    original_shape: Tuple[int, int] | None = None  # (height, width)
+    utm_crs: CRS | None = None
+    utm_transform: Affine | None = None
 
 
 def _create_context_from_src(src: DatasetReader) -> DSMContext:
     """
     Internal helper to create DSMContext from an open rasterio dataset.
     """
-    is_geographic = src.crs and src.crs.is_geographic
+    if src.crs is None:
+        raise ValueError("Input raster has no CRS. Assign a CRS before processing — units cannot be inferred.")
+
+    is_geographic = src.crs.is_geographic
     nodata = src.nodata if src.nodata is not None else DEFAULT_NODATA
 
     if not is_geographic:
@@ -67,16 +73,17 @@ def _create_context_from_src(src: DatasetReader) -> DSMContext:
             original_shape=(src.height, src.width),
         )
 
-    print(f"Input is Geographic ({src.crs}). Reprojecting to UTM for processing...")
+    logger.info("Input is Geographic (%s). Reprojecting to UTM for processing...", src.crs)
     left, bottom, right, top = src.bounds
     center_lon = (left + right) / 2
     center_lat = (bottom + top) / 2
-    utm_crs = estimate_utm_crs(center_lon, center_lat)
-    print(f"Selected CRS: {utm_crs}")
+    utm_crs = CRS.from_epsg(estimate_utm_crs(center_lon, center_lat))
+    logger.info("Selected CRS: %s", utm_crs)
 
     transform, width, height = calculate_default_transform(src.crs, utm_crs, src.width, src.height, *src.bounds)
 
-    dsm_utm = np.zeros((height, width), dtype=np.float32)
+    # Pre-fill with nodata so cells outside the warped source extent stay flagged.
+    dsm_utm = np.full((height, width), nodata, dtype=np.float32)
     reproject(
         source=rasterio.band(src, 1),
         destination=dsm_utm,
@@ -85,7 +92,9 @@ def _create_context_from_src(src: DatasetReader) -> DSMContext:
         dst_transform=transform,
         dst_crs=utm_crs,
         resampling=Resampling.bilinear,
+        src_nodata=nodata,
         dst_nodata=nodata,
+        init_dest_nodata=False,
     )
 
     profile = src.profile.copy()
@@ -96,6 +105,7 @@ def _create_context_from_src(src: DatasetReader) -> DSMContext:
             "width": width,
             "height": height,
             "nodata": nodata,
+            "dtype": dsm_utm.dtype,
         }
     )
 
@@ -142,11 +152,14 @@ def _prepare_output(dtm: NDArray[np.floating], context: DSMContext) -> Tuple[NDA
         profile.update(dtype=dtm.dtype, nodata=context.nodata)
         return dtm, profile
 
-    print("Reprojecting DTM back to original CRS...")
+    logger.info("Reprojecting DTM back to original CRS...")
 
-    # Destination array (Original dimensions)
+    # Destination array (Original dimensions); pre-fill with nodata so corners
+    # outside the warped extent stay flagged instead of defaulting to 0.0.
+    if context.original_shape is None:
+        raise RuntimeError("DSMContext.original_shape missing — cannot reproject DTM back to source extent.")
     orig_h, orig_w = context.original_shape
-    dtm_out = np.zeros((orig_h, orig_w), dtype=dtm.dtype)
+    dtm_out = np.full((orig_h, orig_w), context.nodata, dtype=dtm.dtype)
 
     reproject(
         source=dtm,
@@ -158,6 +171,7 @@ def _prepare_output(dtm: NDArray[np.floating], context: DSMContext) -> Tuple[NDA
         resampling=Resampling.bilinear,
         src_nodata=context.nodata,
         dst_nodata=context.nodata,
+        init_dest_nodata=False,
     )
 
     out_profile = {
@@ -183,6 +197,9 @@ def save_dtm(dtm: NDArray[np.floating], profile: Dict[str, Any], output_path: st
         profile (Dict[str, Any]): Rasterio profile metadata.
         output_path (str): Destination file path.
     """
+    parent = os.path.dirname(output_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with rasterio.open(output_path, "w", **profile) as dst:
         dst.write(dtm, 1)
 
@@ -190,7 +207,7 @@ def save_dtm(dtm: NDArray[np.floating], profile: Dict[str, Any], output_path: st
 def generate_dtm(
     dsm_input: Union[str, DatasetReader],
     kernel_radius_meters: float = DEFAULT_KERNEL_RADIUS_METERS,
-    slope: Optional[float] = None,
+    slope: float | None = None,
     initial_threshold: float = PMF_INITIAL_THRESHOLD,
     max_threshold: float = PMF_MAX_THRESHOLD,
 ) -> Tuple[NDArray[np.floating], Dict[str, Any]]:
@@ -211,6 +228,11 @@ def generate_dtm(
     Returns:
         Tuple[NDArray, Dict]: A tuple containing the DTM numpy array and the rasterio profile (metadata).
     """
+    if not np.isfinite(kernel_radius_meters) or kernel_radius_meters <= 0:
+        raise ValueError(f"kernel_radius_meters must be a positive finite number, got {kernel_radius_meters!r}")
+    if slope is not None and (not np.isfinite(slope) or slope <= 0 or slope > 1):
+        raise ValueError(f"slope must be in (0, 1] when provided, got {slope!r}")
+
     # 1. Load and Prepare (Reproject to UTM if needed)
     ctx = _load_dsm(dsm_input)
 
@@ -260,7 +282,17 @@ def main_cli() -> None:
         default=PMF_MAX_THRESHOLD,
         help="Max elevation threshold in meters (default: 0.5)",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite the output DTM if it already exists.",
+    )
     args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    if not os.path.isfile(args.dsm):
+        raise SystemExit(f"Input DSM not found: {args.dsm}")
 
     # Generate DTM (returns array and profile)
     dtm_array, profile = generate_dtm(
@@ -276,10 +308,13 @@ def main_cli() -> None:
     output_name = os.path.splitext(os.path.basename(args.dsm))[0] + "_dtm.tif"
     dtm_path = os.path.join(args.out_dir, output_name)
 
+    if os.path.exists(dtm_path) and not args.overwrite:
+        raise SystemExit(f"Output already exists: {dtm_path} (pass --overwrite to replace)")
+
     # Save to file
     save_dtm(dtm_array, profile, dtm_path)
 
-    print(f"DTM generated at: {dtm_path}")
+    logger.info("DTM generated at: %s", dtm_path)
 
 
 if __name__ == "__main__":
