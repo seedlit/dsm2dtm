@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dsm2dtm"
-version = "0.3.1"
+version = "0.3.3"
 authors = [
     { name="Naman Jain", email="naman.jain@btech2015.iitgn.ac.in" },
 ]
