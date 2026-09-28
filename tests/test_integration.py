@@ -22,7 +22,7 @@ def calculate_metrics(predicted: np.ndarray, actual: np.ndarray, nodata: float =
 @pytest.mark.parametrize(
     "dsm_name, gt_name, expected_rmse",
     [
-        ("dsm_1m_istanbul_hilly_urban.tif", "dtm_1m_istanbul_hilly_urban.tif", 5.2),
+        ("dsm_1m_istanbul_hilly_urban.tif", "dtm_1m_istanbul_hilly_urban.tif", 2.8),
         ("dsm_50cm_river_and_urban.tif", "dtm_50cm_river_and_urban.tif", 1.1),
         ("dsm_50cm_vegetaion_urban.tif", "dtm_50cm_vegetation_urban.tif", 3.0),
     ],

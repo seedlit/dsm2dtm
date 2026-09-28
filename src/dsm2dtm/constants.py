@@ -12,6 +12,10 @@ BASE_RESOLUTION = 1.0
 PMF_INITIAL_WINDOW_METERS = 3.0  # Start with 3m x 3m window
 PMF_MAX_WINDOW_METERS = 161.0  # Max window size ~161m
 PMF_SLOPE = 0.05  # Dimensionless (rise/run)
+# Upper bound for the auto-estimated slope. The DSM's median gradient includes building
+# walls and canopy edges; above ~0.1 the threshold grows enough to keep objects on
+# hillsides (swisstopo Fribourg holdout RMSE 4.24 -> 3.60 m, Istanbul 4.96 -> 2.53 m).
+MAX_AUTO_SLOPE = 0.1
 PMF_INITIAL_THRESHOLD = 0.1  # Meters
 PMF_MAX_THRESHOLD = 20.0  # Meters - Relaxed for steep terrain
 

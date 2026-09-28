@@ -7,6 +7,7 @@ import rasterio
 from rasterio.transform import from_origin
 
 from dsm2dtm import algorithm, core
+from dsm2dtm.constants import MAX_AUTO_SLOPE
 
 
 @pytest.fixture
@@ -86,10 +87,11 @@ def test_calculate_terrain_slope_gradient():
     dsm = xv.astype(np.float32)  # z = x
     resolution = 1.0
     nodata = -9999.0
-    slope = algorithm.calculate_terrain_slope(dsm, resolution, nodata)
     # Expected: dx=1, dy=0. Slope = sqrt(1^2 + 0^2) = 1.0
-    # Allow some floating point tolerance
-    assert abs(slope - 1.0) < 1e-4
+    samples = algorithm.terrain_slope_samples(dsm, resolution, nodata)
+    assert abs(np.median(samples) - 1.0) < 1e-4
+    # The auto-tuned PMF slope is capped: steep medians come from building walls and canopy edges.
+    assert algorithm.calculate_terrain_slope(dsm, resolution, nodata) == MAX_AUTO_SLOPE
 
 
 def test_calculate_terrain_slope_nodata():

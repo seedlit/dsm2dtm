@@ -19,6 +19,7 @@ from dsm2dtm.constants import (
     DEFAULT_NODATA,
     FINAL_SMOOTH_SIGMA_METERS,
     GAP_FILL_MAX_SEARCH_DISTANCE_METERS,
+    MAX_AUTO_SLOPE,
     MIN_PROCESSING_RESOLUTION_METERS,
     PMF_INITIAL_THRESHOLD,
     PMF_INITIAL_WINDOW_METERS,
@@ -96,11 +97,11 @@ def terrain_slope_samples(dsm: NDArray[np.floating], resolution: float, nodata: 
 
 
 def median_slope(samples: NDArray[np.floating]) -> float:
-    """Median of slope samples clamped to [0.01, 1.0]; `PMF_SLOPE` when there are none."""
+    """Median of slope samples clamped to [0.01, MAX_AUTO_SLOPE]; `PMF_SLOPE` when there are none."""
     if samples.size == 0:
         return PMF_SLOPE
     # Median, not mean: robust against vertical walls.
-    return float(min(max(np.median(samples), 0.01), 1.0))
+    return float(min(max(np.median(samples), 0.01), MAX_AUTO_SLOPE))
 
 
 def calculate_terrain_slope(dsm: NDArray[np.floating], resolution: float, nodata: float) -> float:
@@ -116,7 +117,7 @@ def calculate_terrain_slope(dsm: NDArray[np.floating], resolution: float, nodata
         nodata (float): The value representing no data in the DSM.
 
     Returns:
-        float: The calculated median slope of the terrain (clamped between 0.01 and 1.0).
+        float: The calculated median slope of the terrain (clamped between 0.01 and MAX_AUTO_SLOPE).
     """
     return median_slope(terrain_slope_samples(dsm, resolution, nodata))
 
