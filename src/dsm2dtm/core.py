@@ -280,7 +280,7 @@ def main_cli() -> None:
         "--max_threshold",
         type=float,
         default=PMF_MAX_THRESHOLD,
-        help="Max elevation threshold in meters (default: 0.5)",
+        help=f"Max elevation threshold in meters (default: {PMF_MAX_THRESHOLD})",
     )
     parser.add_argument(
         "--overwrite",
