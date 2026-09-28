@@ -224,3 +224,11 @@ def test_dsm_to_dtm_handles_nan_nodata():
     dtm = algorithm.dsm_to_dtm(dsm, (1.0, 1.0), nodata=np.nan)
     assert np.all(np.isfinite(dtm[:, 30:]))
     assert np.abs(dtm - 100.0)[:, 30:].max() < 0.5
+
+
+def test_dtm_never_exceeds_dsm():
+    rng = np.random.default_rng(0)
+    dsm = (100 + rng.normal(0, 0.5, (150, 150))).astype(np.float32)
+    dsm[60:90, 60:90] += 15.0
+    dtm = algorithm.dsm_to_dtm(dsm, (1.0, 1.0), nodata=-9999.0)
+    assert np.all(dtm <= dsm)

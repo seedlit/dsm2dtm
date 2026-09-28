@@ -497,6 +497,10 @@ def dsm_to_dtm(
             dsm, cell_size, work_nodata, kernel_radius_meters, slope, initial_threshold, max_threshold
         )
 
+    # Bare earth can't sit above the surface; smoothing and gap fill occasionally push it there.
+    valid = dsm != np.float32(work_nodata)
+    dtm[valid] = np.minimum(dtm[valid], dsm[valid])
+
     if work_nodata != nodata:
         dtm[dtm == np.float32(work_nodata)] = nodata
     return dtm
