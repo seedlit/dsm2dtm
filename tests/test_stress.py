@@ -3,6 +3,7 @@ import time
 import numpy as np
 
 from dsm2dtm.algorithm import dsm_to_dtm
+from dsm2dtm.tiling import process_tiled
 
 # --- Helpers ---
 
@@ -39,14 +40,22 @@ def add_vegetation(data, density=0.1, height_range=(2.0, 10.0)):
 
 def test_large_dsm_performance():
     """
-    Stress test with a larger DSM (10000 x 10000 pixels).
-    Evaluate execution time to ensure it finishes in reasonable time.
+    Stress test with a larger DSM (10000 x 10000 pixels) through the tiled path
+    that large rasters use (CLI and QGIS plugin).
     """
     shape = (10000, 10000)
     dsm = create_synthetic_array(shape)
     add_noise(dsm, magnitude=0.5)
+    dtm = np.empty(shape, dtype=np.float32)
+
+    def read(w):
+        return dsm[w.row_off : w.row_off + w.height, w.col_off : w.col_off + w.width]
+
+    def write(w, block):
+        dtm[w.row_off : w.row_off + w.height, w.col_off : w.col_off + w.width] = block
+
     start_time = time.time()
-    dtm = dsm_to_dtm(dsm, resolution=(1.0, 1.0), nodata=-9999.0)
+    process_tiled(read, write, shape, resolution=(1.0, 1.0), nodata=-9999.0, kernel_radius_meters=40.0)
     end_time = time.time()
     duration = end_time - start_time
     print(f"\nLarge DSM ({shape}) processed in {duration:.2f}s")
