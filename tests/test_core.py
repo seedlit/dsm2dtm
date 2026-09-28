@@ -232,3 +232,19 @@ def test_dtm_never_exceeds_dsm():
     dsm[60:90, 60:90] += 15.0
     dtm = algorithm.dsm_to_dtm(dsm, (1.0, 1.0), nodata=-9999.0)
     assert np.all(dtm <= dsm)
+
+
+def _sloped_plane(shape=(300, 300), slope=0.2):
+    _, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
+    return (100 + slope * xx).astype(np.float32)
+
+
+@pytest.mark.parametrize("collar", [np.s_[:, :30], np.s_[:, -30:], np.s_[140:160, 140:160]])
+def test_nodata_does_not_bias_valid_ground(collar):
+    """Bare sloped ground next to nodata (collar on either side, or an interior hole) must be preserved."""
+    plane = _sloped_plane()
+    dsm = plane.copy()
+    dsm[collar] = -9999.0
+    dtm = algorithm.dsm_to_dtm(dsm, (1.0, 1.0), nodata=-9999.0)
+    valid = dsm != -9999.0
+    assert np.abs(dtm - plane)[valid].max() < 0.5

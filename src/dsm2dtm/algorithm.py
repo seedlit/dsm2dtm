@@ -19,7 +19,6 @@ from dsm2dtm.constants import (
     DEFAULT_NODATA,
     FINAL_SMOOTH_SIGMA_METERS,
     GAP_FILL_MAX_SEARCH_DISTANCE_METERS,
-    GAP_FILL_SMOOTHING_ITERATIONS,
     MIN_PROCESSING_RESOLUTION_METERS,
     PMF_INITIAL_THRESHOLD,
     PMF_INITIAL_WINDOW_METERS,
@@ -37,6 +36,14 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 else:
     NDArray = np.ndarray
+
+
+def _fill_nearest(arr: NDArray[np.floating], invalid_mask: NDArray[np.bool_]) -> NDArray[np.floating]:
+    """Copy of `arr` with invalid cells replaced by their nearest valid neighbour."""
+    if not np.any(invalid_mask):
+        return arr.copy()
+    ind = distance_transform_edt(invalid_mask, return_distances=False, return_indices=True)
+    return arr[tuple(ind)]
 
 
 @dataclass
@@ -194,8 +201,7 @@ def progressive_morphological_filter(
     valid_mask = surface != nodata
     if not np.any(valid_mask):
         return surface.copy()
-    min_val = np.min(surface[valid_mask])
-    working = np.where(valid_mask, surface, min_val)
+    working = _fill_nearest(surface, ~valid_mask)
     for window_size in _pmf_window_sequence(initial_window, max_window):
         window_radius = (window_size - 1) // 2
         dh_threshold = min(initial_threshold + slope * window_radius, max_threshold)
@@ -246,9 +252,7 @@ def refine_ground_surface(
     valid_mask = ground != nodata
     if not np.any(valid_mask):
         return ground.copy()
-    min_val = np.min(ground[valid_mask])
-    smooth_input = np.where(ground == nodata, min_val, ground)
-    smoothed = gaussian_filter(smooth_input, sigma=smoothen_radius)
+    smoothed = gaussian_filter(_fill_nearest(ground, ~valid_mask), sigma=smoothen_radius)
     diff = ground - smoothed
     refined = ground.copy()
     refined[(diff >= elevation_threshold) & valid_mask] = nodata
@@ -311,12 +315,7 @@ def _process_coarse_dsm(
 
     # Nearest-neighbor fill before zooming so bilinear interpolation
     # doesn't smear the nodata sentinel into valid neighbors.
-    dsm_filled = dsm.copy()
-    if np.any(invalid_mask):
-        _, ind = distance_transform_edt(invalid_mask, return_distances=True, return_indices=True)
-        dsm_filled = dsm_filled[tuple(ind)]
-
-    dsm_coarse = zoom(dsm_filled, scale, order=1)
+    dsm_coarse = zoom(_fill_nearest(dsm, invalid_mask), scale, order=1)
 
     dtm_coarse = dsm_to_dtm(
         dsm_coarse,
@@ -331,11 +330,7 @@ def _process_coarse_dsm(
     # Fill nodata in dtm_coarse before bilinear upsample so the sentinel
     # doesn't smear into valid neighbours (BUG-58).
     coarse_invalid = dtm_coarse == nodata
-    if np.any(coarse_invalid) and not np.all(coarse_invalid):
-        _, ind_c = distance_transform_edt(coarse_invalid, return_distances=True, return_indices=True)
-        dtm_coarse_filled = dtm_coarse[tuple(ind_c)]
-    else:
-        dtm_coarse_filled = dtm_coarse
+    dtm_coarse_filled = dtm_coarse if np.all(coarse_invalid) else _fill_nearest(dtm_coarse, coarse_invalid)
 
     dtm_fine = zoom(dtm_coarse_filled, (h / dtm_coarse_filled.shape[0], w / dtm_coarse_filled.shape[1]), order=1)
     # scipy.ndimage.zoom can be off by one — clamp/pad to the expected shape.
@@ -423,28 +418,19 @@ def _process_standard_dsm(
         elevation_threshold=REFINEMENT_ELEVATION_THRESHOLD,
     )
 
-    # Step 3: Light gaussian smoothing
-    valid_mask = ground != nodata
-    if np.any(valid_mask):
-        min_val = np.min(ground[valid_mask])
-        smooth_input = np.where(ground == nodata, min_val, ground)
-        smoothed = gaussian_filter(smooth_input, sigma=params.final_smooth_sigma)
-        ground = np.where(valid_mask, smoothed, nodata)
-
-    # Step 4: Gap interpolation. Only fill cells within `gap_fill_search_dist`
-    # pixels of a valid neighbour — preserves nodata over large holes (water
-    # bodies, coverage gaps) instead of stamping them with a single far-away value.
+    # Step 3: Gap fill, then light smoothing. Filling first keeps nodata out of the
+    # Gaussian kernel; cells beyond `gap_fill_search_dist` (water bodies, coverage
+    # gaps) are returned to nodata rather than stamped with a far-away value.
     invalid_mask = ground == nodata
-    dtm = ground.astype(np.float32, copy=True)
-    if np.any(invalid_mask) and np.any(valid_mask):
+    if np.all(invalid_mask):
+        return ground.astype(np.float32)
+    has_gaps = np.any(invalid_mask)
+    if has_gaps:
         distances, ind = distance_transform_edt(invalid_mask, return_distances=True, return_indices=True)
-        within_range = invalid_mask & (distances <= params.gap_fill_search_dist)
-        if np.any(within_range):
-            filled = dtm[tuple(ind)]
-            if GAP_FILL_SMOOTHING_ITERATIONS > 0:
-                filled = gaussian_filter(filled, sigma=1.0)
-            dtm[within_range] = filled[within_range]
-
+        ground = ground[tuple(ind)]
+    dtm = gaussian_filter(ground, sigma=params.final_smooth_sigma).astype(np.float32)
+    if has_gaps:
+        dtm[invalid_mask & (distances > params.gap_fill_search_dist)] = nodata
     return dtm
 
 
