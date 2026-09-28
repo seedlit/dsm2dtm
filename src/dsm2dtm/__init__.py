@@ -2,9 +2,9 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .core import generate_dtm, save_dtm
+from .core import generate_dtm, generate_dtm_file, save_dtm
 
-__all__ = ["generate_dtm", "save_dtm"]
+__all__ = ["generate_dtm", "generate_dtm_file", "save_dtm"]
 
 try:
     __version__ = version("dsm2dtm")

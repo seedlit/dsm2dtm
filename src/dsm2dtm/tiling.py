@@ -105,10 +105,11 @@ def estimate_slope_tiled(
 ) -> float:
     """Global median terrain slope, pooled from tile cores so the whole raster is never in memory."""
     rng = np.random.default_rng(0)
+    tiles = plan_tiles(shape, tile_size, halo=0)
     pooled = []
-    for tile in plan_tiles(shape, tile_size, halo=0):
+    for tile in tiles:
         samples = terrain_slope_samples(_as_float(read(tile.core), nodata), resolution, nodata)
-        if samples.size > _SLOPE_SAMPLES_PER_TILE:
+        if len(tiles) > 1 and samples.size > _SLOPE_SAMPLES_PER_TILE:
             samples = rng.choice(samples, _SLOPE_SAMPLES_PER_TILE, replace=False)
         pooled.append(samples)
     return median_slope(np.concatenate(pooled) if pooled else np.empty(0, dtype=np.float32))
