@@ -9,6 +9,7 @@ from dsm2dtm_core.constants import MIN_PROCESSING_RESOLUTION_METERS
 from dsm2dtm_core.tiling import TilingCancelled, default_workers, plan_tiles, process_tiled
 from dsm2dtm_core.utm_utils import estimate_utm_crs
 from qgis.core import (
+    Qgis,
     QgsProcessingAlgorithm,
     QgsProcessingException,
     QgsProcessingParameterNumber,
@@ -21,6 +22,8 @@ from qgis.core import (
 # float-friendly PREDICTOR=3 — typical 4-5x size reduction on smooth terrain.
 _GTIFF_OPTS = ["COMPRESS=DEFLATE", "TILED=YES", "PREDICTOR=3", "BIGTIFF=IF_SAFER"]
 _MAX_WINDOW_PX = 5000
+# Scoped enum exists from QGIS 3.36; PyQt6 builds (QGIS 4) need it instead of the unscoped alias.
+_NUMBER_DOUBLE = getattr(Qgis, "ProcessingNumberParameterType", QgsProcessingParameterNumber).Double
 
 
 def _utm_epsg_for(lon: float, lat: float) -> int:
@@ -92,7 +95,7 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber(
                 self.RADIUS,
                 "Radius (meters)",
-                type=QgsProcessingParameterNumber.Double,
+                type=_NUMBER_DOUBLE,
                 defaultValue=40.0,
                 minValue=1.0,
                 maxValue=500.0,
@@ -102,7 +105,7 @@ class Dsm2DtmAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber(
                 self.SLOPE,
                 "Slope (0=auto, 0.01-1.0=manual)",
-                type=QgsProcessingParameterNumber.Double,
+                type=_NUMBER_DOUBLE,
                 defaultValue=0.0,
                 minValue=0.0,
                 maxValue=1.0,
