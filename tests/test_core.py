@@ -196,3 +196,13 @@ def test_generate_dtm_with_object(synthetic_dsm_path):
         assert dtm.shape == (src.height, src.width)
         # Check basic property to ensure it actually ran
         assert abs(dtm[0, 0] - 100.0) < 0.5
+
+
+def test_pmf_applies_requested_max_window():
+    """A 70px-wide building must be removed when max_window=81 even though the doubling sequence skips 81."""
+    dsm = np.full((200, 200), 100.0, dtype=np.float32)
+    dsm[65:135, 65:135] = 110.0
+    ground = algorithm.progressive_morphological_filter(
+        dsm, nodata=-9999.0, initial_window=3, max_window=81, slope=0.05
+    )
+    assert np.allclose(ground[100, 100], 100.0)

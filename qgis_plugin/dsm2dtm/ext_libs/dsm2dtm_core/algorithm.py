@@ -196,25 +196,28 @@ def progressive_morphological_filter(
         return surface.copy()
     min_val = np.min(surface[valid_mask])
     working = np.where(valid_mask, surface, min_val)
-    # Use adapted initial window size
-    window_size = initial_window
-    while window_size <= max_window:
+    for window_size in _pmf_window_sequence(initial_window, max_window):
         window_radius = (window_size - 1) // 2
         dh_threshold = min(initial_threshold + slope * window_radius, max_threshold)
 
-        struct = np.ones((window_size, window_size))
-        opened = grey_opening(working, footprint=struct)
+        opened = grey_opening(working, size=(window_size, window_size))
 
         diff = working - opened
         non_ground_mask = diff > dh_threshold
         working[non_ground_mask] = opened[non_ground_mask]
 
-        window_size = 2 * window_size - 1
-        # Stop if we exceed max window
-        if window_size > max_window:
-            break
-
     return np.where(valid_mask, working, nodata)
+
+
+def _pmf_window_sequence(initial_window: int, max_window: int) -> list[int]:
+    """Exponentially growing odd window sizes, always ending exactly at `max_window`."""
+    windows = []
+    window_size = initial_window
+    while window_size < max_window:
+        windows.append(window_size)
+        window_size = 2 * window_size - 1
+    windows.append(max_window)
+    return windows
 
 
 def refine_ground_surface(
