@@ -58,13 +58,57 @@ class AdaptiveParameters:
     gap_fill_search_dist: float
 
 
+def terrain_slope_samples(dsm: NDArray[np.floating], resolution: float, nodata: float) -> NDArray[np.floating]:
+    """
+    Gradient magnitudes (rise/run) of the valid DSM cells, computed at >= ~1 m resolution.
+
+    Exposed separately from `calculate_terrain_slope` so tiled processing can pool samples
+    across tiles and take one global median.
+
+    Args:
+        dsm (NDArray[np.floating]): The input DSM as a 2D numpy array.
+        resolution (float): The spatial resolution of the DSM (in meters per pixel).
+        nodata (float): The value representing no data in the DSM.
+
+    Returns:
+        NDArray[np.floating]: 1D array of finite slopes; empty if none can be computed.
+    """
+    target_res = 1.0
+    current_res = max(resolution, 0.001)
+
+    if current_res < (target_res * 0.5):
+        dsm_for_slope = zoom(dsm, current_res / target_res, order=1)
+        res_for_slope = target_res
+    else:
+        dsm_for_slope = dsm
+        res_for_slope = current_res
+
+    valid_mask = dsm_for_slope != nodata
+    if not np.any(valid_mask) or dsm_for_slope.shape[0] < 2 or dsm_for_slope.shape[1] < 2:
+        return np.empty(0, dtype=np.float32)
+
+    # NaN out nodata so gradients at the edge of validity are dropped instead of overflowing.
+    dsm_nan = dsm_for_slope.astype(np.float32, copy=True)
+    dsm_nan[~valid_mask] = np.nan
+    dy, dx = np.gradient(dsm_nan)
+    slopes = np.hypot(dy, dx)[valid_mask] / res_for_slope
+    return slopes[np.isfinite(slopes)]
+
+
+def median_slope(samples: NDArray[np.floating]) -> float:
+    """Median of slope samples clamped to [0.01, 1.0]; `PMF_SLOPE` when there are none."""
+    if samples.size == 0:
+        return PMF_SLOPE
+    # Median, not mean: robust against vertical walls.
+    return float(min(max(np.median(samples), 0.01), 1.0))
+
+
 def calculate_terrain_slope(dsm: NDArray[np.floating], resolution: float, nodata: float) -> float:
     """
     Calculate the median terrain slope (rise/run) of the DSM.
 
     This function estimates the general slope of the terrain to automatically tune the
-    Progressive Morphological Filter (PMF) slope parameter. It calculates the gradient magnitude
-    of the DSM and takes the median of the valid slopes.
+    Progressive Morphological Filter (PMF) slope parameter.
 
     Args:
         dsm (NDArray[np.floating]): The input Digital Surface Model (DSM) as a 2D numpy array.
@@ -74,48 +118,7 @@ def calculate_terrain_slope(dsm: NDArray[np.floating], resolution: float, nodata
     Returns:
         float: The calculated median slope of the terrain (clamped between 0.01 and 1.0).
     """
-    # Decimate if resolution is very fine (e.g. < 0.5m)
-    # Target ~1.0m resolution for slope estimation
-    target_res = 1.0
-    current_res = max(resolution, 0.001)
-
-    if current_res < (target_res * 0.5):
-        scale_factor = current_res / target_res
-        dsm_for_slope = zoom(dsm, scale_factor, order=1)
-        res_for_slope = target_res
-    else:
-        dsm_for_slope = dsm
-        res_for_slope = current_res
-
-    valid_mask = dsm_for_slope != nodata
-    if not np.any(valid_mask):
-        return PMF_SLOPE
-
-    # Check for sufficient size for gradient calculation
-    if dsm_for_slope.shape[0] < 2 or dsm_for_slope.shape[1] < 2:
-        return PMF_SLOPE
-
-    # Replace nodata with NaN to prevent gradient overflow at boundaries
-    dsm_nan = dsm_for_slope.copy()
-    dsm_nan[~valid_mask] = np.nan
-
-    dy, dx = np.gradient(dsm_nan)
-    slope_per_pixel = np.sqrt(dy**2 + dx**2)
-    slope_dimensionless = slope_per_pixel / res_for_slope
-
-    # Extract slopes where original data was valid.
-    # Note: Gradient at the edge of validity will be NaN because neighbors are NaN.
-    # np.nanmedian handles this automatically.
-    valid_slopes = slope_dimensionless[valid_mask]
-
-    if np.all(np.isnan(valid_slopes)):
-        return PMF_SLOPE
-
-    # Use Median instead of Mean for robustness against outliers (vertical walls)
-    median_slope = np.nanmedian(valid_slopes)
-    # Clamp to reasonable bounds
-    median_slope = max(0.01, min(median_slope, 1.0))
-    return float(median_slope)
+    return median_slope(terrain_slope_samples(dsm, resolution, nodata))
 
 
 def get_adaptive_parameters(
