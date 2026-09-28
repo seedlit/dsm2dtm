@@ -30,3 +30,6 @@ GAP_FILL_MAX_SEARCH_DISTANCE_METERS = 100.0
 
 # Default Kernel Radius for CLI/Main (Meters)
 DEFAULT_KERNEL_RADIUS_METERS = 40.0
+
+# Tiled processing: core tile edge in pixels (a multiple of the 256 px GeoTIFF block)
+DEFAULT_TILE_SIZE = 2048

@@ -71,7 +71,7 @@ def sync_metadata_version() -> None:
 # Only QGIS-safe modules get vendored. `core.py` imports rasterio and `__init__.py`
 # imports from core, neither of which works in stock QGIS. The plugin's own
 # processing_algorithm.py owns I/O and orchestration.
-VENDORED_MODULES = ("algorithm.py", "constants.py", "utm_utils.py")
+VENDORED_MODULES = ("algorithm.py", "constants.py", "tiling.py", "utm_utils.py")
 
 _VENDORED_INIT = '''"""Vendored subset of the dsm2dtm library for the QGIS plugin.
 
