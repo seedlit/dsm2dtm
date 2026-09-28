@@ -206,3 +206,21 @@ def test_pmf_applies_requested_max_window():
         dsm, nodata=-9999.0, initial_window=3, max_window=81, slope=0.05
     )
     assert np.allclose(ground[100, 100], 100.0)
+
+
+@pytest.mark.parametrize("dtype", [np.int16, np.int32, np.float64])
+def test_dsm_to_dtm_accepts_non_float32_dtypes(dtype):
+    dsm = np.full((100, 100), 1000, dtype=dtype)
+    dsm[40:60, 40:60] = 1100
+    dsm[:5, :5] = -32768
+    dtm = algorithm.dsm_to_dtm(dsm, (1.0, 1.0), nodata=-32768)
+    assert dtm.dtype == np.float32
+    assert abs(dtm[50, 50] - 1000) < 1.0
+
+
+def test_dsm_to_dtm_handles_nan_nodata():
+    dsm = np.full((200, 200), 100.0, dtype=np.float32)
+    dsm[:, :30] = np.nan
+    dtm = algorithm.dsm_to_dtm(dsm, (1.0, 1.0), nodata=np.nan)
+    assert np.all(np.isfinite(dtm[:, 30:]))
+    assert np.abs(dtm - 100.0)[:, 30:].max() < 0.5

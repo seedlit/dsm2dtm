@@ -480,11 +480,23 @@ def dsm_to_dtm(
     cell_size = (abs(resolution[0]) + abs(resolution[1])) / 2.0
     cell_size = max(cell_size, 0.001)  # Avoid zero
 
-    # Check if we should process at a coarser resolution
+    # Work in float32 with a finite sentinel: integer DSMs can't hold NaN, and NaN
+    # nodata never compares equal to itself.
+    work_nodata = float(nodata) if np.isfinite(np.float32(nodata)) else DEFAULT_NODATA
+    dsm = np.asarray(dsm, dtype=np.float32)
+    non_finite = ~np.isfinite(dsm)
+    if np.any(non_finite):
+        dsm = np.where(non_finite, np.float32(work_nodata), dsm)
+
     if cell_size < (MIN_PROCESSING_RESOLUTION_METERS * 0.9):
-        return _process_coarse_dsm(
-            dsm, cell_size, nodata, kernel_radius_meters, slope, initial_threshold, max_threshold
+        dtm = _process_coarse_dsm(
+            dsm, cell_size, work_nodata, kernel_radius_meters, slope, initial_threshold, max_threshold
+        )
+    else:
+        dtm = _process_standard_dsm(
+            dsm, cell_size, work_nodata, kernel_radius_meters, slope, initial_threshold, max_threshold
         )
 
-    # --- Standard Processing (Full Resolution) ---
-    return _process_standard_dsm(dsm, cell_size, nodata, kernel_radius_meters, slope, initial_threshold, max_threshold)
+    if work_nodata != nodata:
+        dtm[dtm == np.float32(work_nodata)] = nodata
+    return dtm
