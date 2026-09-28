@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
-from scipy.ndimage import distance_transform_edt, gaussian_filter, grey_opening, zoom
+from scipy.ndimage import distance_transform_edt, gaussian_filter, grey_opening, uniform_filter, zoom
 
 from dsm2dtm_core.constants import (
     DEFAULT_NODATA,
@@ -204,7 +204,8 @@ def progressive_morphological_filter(
     valid_mask = surface != nodata
     if not np.any(valid_mask):
         return surface.copy()
-    working = _fill_nearest(surface, ~valid_mask)
+    pad = max_window // 2
+    working = _pad_along_trend(_fill_nearest(surface, ~valid_mask), pad)
     for window_size in _pmf_window_sequence(initial_window, max_window):
         window_radius = (window_size - 1) // 2
         dh_threshold = min(initial_threshold + slope * window_radius, max_threshold)
@@ -215,7 +216,30 @@ def progressive_morphological_filter(
         non_ground_mask = diff > dh_threshold
         working[non_ground_mask] = opened[non_ground_mask]
 
+    working = working[pad : pad + surface.shape[0], pad : pad + surface.shape[1]]
     return np.where(valid_mask, working, nodata)
+
+
+def _pad_along_trend(arr: NDArray[np.floating], pad: int) -> NDArray[np.floating]:
+    """
+    Pad by extrapolating a smoothed trend past the border.
+
+    Morphological opening near an edge otherwise treats uphill terrain as a peak and
+    shaves it. Odd reflection alone continues slopes but mirrors edge objects into
+    taller ramps; smoothing the reflected margin keeps the slope and drops the objects.
+    """
+    if pad == 0:
+        return arr
+    padded = np.pad(arr, pad, mode="reflect", reflect_type="odd")
+    # Box filter: O(1) per pixel for any size, and like any linear smoother it preserves planes.
+    # Only the margin needs the trend, so smooth strips just deep enough to cover it.
+    size = pad | 1
+    strip = 2 * pad
+    padded[:pad] = uniform_filter(padded[:strip], size)[:pad]
+    padded[-pad:] = uniform_filter(padded[-strip:], size)[-pad:]
+    padded[:, :pad] = uniform_filter(padded[:, :strip], size)[:, :pad]
+    padded[:, -pad:] = uniform_filter(padded[:, -strip:], size)[:, -pad:]
+    return padded
 
 
 def _pmf_window_sequence(initial_window: int, max_window: int) -> list[int]:

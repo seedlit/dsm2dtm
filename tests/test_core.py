@@ -248,3 +248,11 @@ def test_nodata_does_not_bias_valid_ground(collar):
     dtm = algorithm.dsm_to_dtm(dsm, (1.0, 1.0), nodata=-9999.0)
     valid = dsm != -9999.0
     assert np.abs(dtm - plane)[valid].max() < 0.5
+
+
+@pytest.mark.parametrize("grade", [0.2, 0.3])
+def test_pmf_preserves_steep_slope_at_image_border(grade):
+    """Uphill ground touching the raster edge must not be shaved even with a low slope threshold."""
+    plane = _sloped_plane(shape=(300, 600), slope=grade)
+    dtm = algorithm.dsm_to_dtm(plane, (1.0, 1.0), slope=0.05, nodata=-9999.0)
+    assert np.abs(dtm - plane).max() < 0.5
