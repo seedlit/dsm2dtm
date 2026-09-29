@@ -22,12 +22,9 @@ def calculate_metrics(predicted: np.ndarray, actual: np.ndarray, nodata: float =
 @pytest.mark.parametrize(
     "dsm_name, gt_name, expected_rmse",
     [
-        ("dsm_1m_istanbul_hilly_urban.tif", "dtm_1m_istanbul_hilly_urban.tif", 5.0),
-        ("dsm_50cm_river_and_urban.tif", "dtm_50cm_river_and_urban.tif", 2.0),
-        # vegetation_urban: 8.5 (was 8.0). Gap-fill switched from rasterio IDW
-        # to nearest-neighbour distance transform when the algorithm went
-        # rasterio-free for plugin parity; ~1% RMSE noise is expected.
-        ("dsm_50cm_vegetaion_urban.tif", "dtm_50cm_vegetation_urban.tif", 8.5),
+        ("dsm_1m_istanbul_hilly_urban.tif", "dtm_1m_istanbul_hilly_urban.tif", 2.8),
+        ("dsm_50cm_river_and_urban.tif", "dtm_50cm_river_and_urban.tif", 1.1),
+        ("dsm_50cm_vegetaion_urban.tif", "dtm_50cm_vegetation_urban.tif", 3.0),
     ],
 )
 # TODO: look at why RMSE is so high?

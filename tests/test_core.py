@@ -7,6 +7,7 @@ import rasterio
 from rasterio.transform import from_origin
 
 from dsm2dtm import algorithm, core
+from dsm2dtm.constants import MAX_AUTO_SLOPE
 
 
 @pytest.fixture
@@ -86,10 +87,11 @@ def test_calculate_terrain_slope_gradient():
     dsm = xv.astype(np.float32)  # z = x
     resolution = 1.0
     nodata = -9999.0
-    slope = algorithm.calculate_terrain_slope(dsm, resolution, nodata)
     # Expected: dx=1, dy=0. Slope = sqrt(1^2 + 0^2) = 1.0
-    # Allow some floating point tolerance
-    assert abs(slope - 1.0) < 1e-4
+    samples = algorithm.terrain_slope_samples(dsm, resolution, nodata)
+    assert abs(np.median(samples) - 1.0) < 1e-4
+    # The auto-tuned PMF slope is capped: steep medians come from building walls and canopy edges.
+    assert algorithm.calculate_terrain_slope(dsm, resolution, nodata) == MAX_AUTO_SLOPE
 
 
 def test_calculate_terrain_slope_nodata():
@@ -196,3 +198,63 @@ def test_generate_dtm_with_object(synthetic_dsm_path):
         assert dtm.shape == (src.height, src.width)
         # Check basic property to ensure it actually ran
         assert abs(dtm[0, 0] - 100.0) < 0.5
+
+
+def test_pmf_applies_requested_max_window():
+    """A 70px-wide building must be removed when max_window=81 even though the doubling sequence skips 81."""
+    dsm = np.full((200, 200), 100.0, dtype=np.float32)
+    dsm[65:135, 65:135] = 110.0
+    ground = algorithm.progressive_morphological_filter(
+        dsm, nodata=-9999.0, initial_window=3, max_window=81, slope=0.05
+    )
+    assert np.allclose(ground[100, 100], 100.0)
+
+
+@pytest.mark.parametrize("dtype", [np.int16, np.int32, np.float64])
+def test_dsm_to_dtm_accepts_non_float32_dtypes(dtype):
+    dsm = np.full((100, 100), 1000, dtype=dtype)
+    dsm[40:60, 40:60] = 1100
+    dsm[:5, :5] = -32768
+    dtm = algorithm.dsm_to_dtm(dsm, (1.0, 1.0), nodata=-32768)
+    assert dtm.dtype == np.float32
+    assert abs(dtm[50, 50] - 1000) < 1.0
+
+
+def test_dsm_to_dtm_handles_nan_nodata():
+    dsm = np.full((200, 200), 100.0, dtype=np.float32)
+    dsm[:, :30] = np.nan
+    dtm = algorithm.dsm_to_dtm(dsm, (1.0, 1.0), nodata=np.nan)
+    assert np.all(np.isfinite(dtm[:, 30:]))
+    assert np.abs(dtm - 100.0)[:, 30:].max() < 0.5
+
+
+def test_dtm_never_exceeds_dsm():
+    rng = np.random.default_rng(0)
+    dsm = (100 + rng.normal(0, 0.5, (150, 150))).astype(np.float32)
+    dsm[60:90, 60:90] += 15.0
+    dtm = algorithm.dsm_to_dtm(dsm, (1.0, 1.0), nodata=-9999.0)
+    assert np.all(dtm <= dsm)
+
+
+def _sloped_plane(shape=(300, 300), slope=0.2):
+    _, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
+    return (100 + slope * xx).astype(np.float32)
+
+
+@pytest.mark.parametrize("collar", [np.s_[:, :30], np.s_[:, -30:], np.s_[140:160, 140:160]])
+def test_nodata_does_not_bias_valid_ground(collar):
+    """Bare sloped ground next to nodata (collar on either side, or an interior hole) must be preserved."""
+    plane = _sloped_plane()
+    dsm = plane.copy()
+    dsm[collar] = -9999.0
+    dtm = algorithm.dsm_to_dtm(dsm, (1.0, 1.0), nodata=-9999.0)
+    valid = dsm != -9999.0
+    assert np.abs(dtm - plane)[valid].max() < 0.5
+
+
+@pytest.mark.parametrize("grade", [0.2, 0.3])
+def test_pmf_preserves_steep_slope_at_image_border(grade):
+    """Uphill ground touching the raster edge must not be shaved even with a low slope threshold."""
+    plane = _sloped_plane(shape=(300, 600), slope=grade)
+    dtm = algorithm.dsm_to_dtm(plane, (1.0, 1.0), slope=0.05, nodata=-9999.0)
+    assert np.abs(dtm - plane).max() < 0.5

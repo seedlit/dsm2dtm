@@ -10,10 +10,15 @@ permissions:
 
 jobs:
   build-and-run:
-    name: Build & run plugin in QGIS
+    name: Build & run plugin in QGIS (${{ matrix.qgis }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # stable = QGIS 4.x (Qt6), ltr = QGIS 3.x (Qt5)
+        qgis: [stable, ltr]
     container:
-      image: qgis/qgis:stable
+      image: qgis/qgis:${{ matrix.qgis }}
       options: --user root
 
     env:
@@ -38,12 +43,15 @@ jobs:
 
       - name: Install plugin from ZIP into QGIS profile
         run: |
-          PLUGIN_DIR="$HOME/.local/share/QGIS/QGIS3/profiles/default/python/plugins"
-          mkdir -p "$PLUGIN_DIR"
           apt-get update -qq && apt-get install -y -qq unzip xvfb >/dev/null
-          unzip -q qgis_plugin/dist/dsm2dtm_qgis_plugin.zip -d "$PLUGIN_DIR"
-          test -f "$PLUGIN_DIR/dsm2dtm/processing_algorithm.py"
-          test -d "$PLUGIN_DIR/dsm2dtm/ext_libs/dsm2dtm_core"
+          # QGIS 4 may use a QGIS4 profile root; install into both so either version finds it.
+          for ROOT in QGIS3 QGIS4; do
+            PLUGIN_DIR="$HOME/.local/share/QGIS/$ROOT/profiles/default/python/plugins"
+            mkdir -p "$PLUGIN_DIR"
+            unzip -qo qgis_plugin/dist/dsm2dtm_qgis_plugin.zip -d "$PLUGIN_DIR"
+            test -f "$PLUGIN_DIR/dsm2dtm/processing_algorithm.py"
+            test -d "$PLUGIN_DIR/dsm2dtm/ext_libs/dsm2dtm_core"
+          done
 
       - name: Enable plugin and verify it registers
         run: |
@@ -152,6 +160,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: plugin-ci-outputs
+          name: plugin-ci-outputs-${{ matrix.qgis }}
           path: /tmp/plugin-ci/
           if-no-files-found: ignore

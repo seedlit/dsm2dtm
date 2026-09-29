@@ -62,6 +62,17 @@ dtm_array, profile = generate_dtm(input_path)
 save_dtm(dtm_array, profile, output_path)
 ```
 
+#### Large rasters (streaming, file to file)
+`generate_dtm` holds the whole raster in memory (peak ~10x the input). For large DSMs, use
+`generate_dtm_file`, which processes overlapping tiles in parallel threads, so memory is bounded
+by `workers x tile_size` instead of raster size (a 16000 x 16000 DSM runs in ~23 s at ~2.5 GB):
+
+```python
+from dsm2dtm import generate_dtm_file
+
+generate_dtm_file("dsm.tif", "dtm.tif", tile_size=2048, workers=4)
+```
+
 #### Low-Level API (rasterio based)
 Ideal for in-memory processing or integration with other libraries like `xarray`.
 
@@ -96,7 +107,11 @@ dsm2dtm --dsm dsm.tif --out_dir output/
 *   `--dsm`: Path to the input DSM (GeoTIFF).
 *   `--out_dir`: Directory where the output DTM will be saved (default: `generated_dtm`).
 *   `--radius`: (Optional) Kernel radius in meters for object removal. Objects larger than 2x this radius will typically NOT be removed. Set this to slightly larger than half the width of the largest building in your scene. Default: 40.0.
-*   `--slope`: (Optional) Terrain slope (0-1). Calculated automatically if not provided.
+*   `--slope`: (Optional) Terrain slope (0-1). Estimated automatically (capped at 0.1) if not provided.
+*   `--tile_size`: (Optional) Tile edge in pixels for streaming processing. Default: 2048.
+*   `--workers`: (Optional) Worker threads. Default: up to 4.
+
+The CLI always streams tile by tile, so arbitrarily large DSMs fit in memory.
 
 
 ### 3. QGIS Plugin
@@ -145,11 +160,12 @@ graph LR
     end
 ```
 
-1.  **Resolution Adaptation**: Parameters are scaled automatically based on the input pixel size. High-resolution inputs (>0.5m) are optionally downsampled for stability and speed, then upsampled back.
+1.  **Resolution Adaptation**: Parameters are scaled automatically based on the input pixel size. Inputs finer than 0.5m are downsampled to 0.5m for stability and speed, then upsampled back.
 2.  **Slope Estimation**: Local terrain slopes are calculated to adapt the filtering thresholds.
 3.  **Progressive Morphological Filter (PMF)**: Iteratively applies morphological opening (erosion followed by dilation) with increasing window sizes. This effectively "shaves off" objects that stick out above the ground surface.
 4.  **Refinement**: A smoothing step compares the rough ground estimate with the original surface to recover over-smoothed details while rejecting spikes.
-5.  **Gap Filling**: Any remaining holes (nodata) are filled using inverse distance weighting or nearest neighbor interpolation.
+5.  **Gap Filling**: Remaining holes (nodata) within 100m of valid ground are filled from the nearest valid cell before a light final smoothing; larger gaps (e.g. water bodies) stay nodata. The DTM is clamped to never exceed the DSM.
+6.  **Tiling**: Large rasters are split into tiles with an overlap wide enough that results match whole-raster processing.
 
 
 ---
@@ -162,7 +178,6 @@ We welcome contributions! Please feel free to submit a Pull Request.
 We are actively looking for help with:
 *   **Performance:**
     *   GPU acceleration (e.g., using `cupy`).
-    *   Parallel processing (Multi-core/Multi-threading or `dask`).
 *   **Algorithm Improvements:**
     *   Reducing holes/artifacts on building borders
     *   Better removal of square-shaped buildings (currently works best on rectangular footprints).
