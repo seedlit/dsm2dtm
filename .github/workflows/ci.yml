@@ -36,6 +36,10 @@ jobs:
     - name: Run Ruff Format Check
       run: uv run ruff format --check .
 
+    - name: Run Bandit on QGIS plugin
+      # plugins.qgis.org blocks uploads that Bandit flags.
+      run: uvx bandit -r qgis_plugin/dsm2dtm -q
+
     - name: Run mypy
       run: uv run mypy src/
 
