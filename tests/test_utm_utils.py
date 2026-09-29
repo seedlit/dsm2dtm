@@ -1,3 +1,6 @@
+import logging
+
+from dsm2dtm import utm_utils
 from dsm2dtm.utm_utils import estimate_utm_crs
 
 
@@ -46,3 +49,14 @@ def test_estimate_utm_crs_norway_exception():
     assert estimate_utm_crs(5.3, 60.4) == 32631
     # Longyearbyen, Svalbard ~15.6E, 78.2N falls in standard zone 33N (EPSG 32633).
     assert estimate_utm_crs(15.6, 78.2) == 32633
+
+
+def test_estimate_utm_crs_falls_back_when_proj_lookup_fails(monkeypatch, caplog):
+    def broken_lookup(**_kwargs):
+        raise RuntimeError("proj.db missing")
+
+    monkeypatch.setattr(utm_utils, "query_utm_crs_info", broken_lookup)
+    with caplog.at_level(logging.DEBUG, logger=utm_utils.__name__):
+        assert utm_utils.estimate_utm_crs(2.35, 48.85) == 32631
+        assert utm_utils.estimate_utm_crs(151.2, -33.87) == 32756
+    assert "proj.db missing" in caplog.text
