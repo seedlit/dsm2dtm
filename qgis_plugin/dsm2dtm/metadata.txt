@@ -3,7 +3,7 @@ name=DSM to DTM
 qgisMinimumVersion=3.28
 qgisMaximumVersion=4.99
 description=Generate Digital Terrain Models (DTM) from Digital Surface Models (DSM). Removes buildings, vegetation, and cars.
-version=0.4.0
+version=0.4.1
 author=Naman Jain
 email=naman.jain@btech2015.iitgn.ac.in
 about=A robust, pure-Python implementation of Progressive Morphological Filtering for bare-earth extraction. No external dependencies required beyond what QGIS provides.
@@ -19,7 +19,9 @@ icon=icon.png
 
 hasProcessingProvider=yes
 
-changelog=0.4.0
+changelog=0.4.1
+    - Pass the plugins.qgis.org security scan (no functional change)
+    0.4.0
     - QGIS 4 support
     - Large rasters processed in tiles with multiple threads: bounded memory, per-tile progress, Cancel works
     - Accuracy fixes: full kernel radius applied, nodata no longer drags terrain down, uphill raster edges preserved, auto slope capped

@@ -5,8 +5,12 @@ Pure pyproj — no rasterio. The QGIS plugin vendors this module verbatim.
 Callers wrap the returned EPSG code in whatever CRS type they need.
 """
 
+import logging
+
 from pyproj.aoi import AreaOfInterest
 from pyproj.database import query_utm_crs_info
+
+logger = logging.getLogger(__name__)
 
 
 def estimate_utm_crs(lon: float, lat: float) -> int:
@@ -36,8 +40,8 @@ def estimate_utm_crs(lon: float, lat: float) -> int:
         )
         if utm_crs_list:
             return int(utm_crs_list[0].code)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("PROJ UTM lookup failed (%s); using standard zone math", exc)
 
     # Fallback: standard zones via simple math. Wrap so lon=180 → zone 1.
     zone = int((lon + 180) / 6) % 60 + 1
