@@ -43,7 +43,7 @@ jobs:
 
       - name: Install plugin from ZIP into QGIS profile
         run: |
-          apt-get update -qq && apt-get install -y -qq unzip xvfb >/dev/null
+          apt-get update -qq && apt-get install -y -qq unzip xvfb python3-scipy >/dev/null
           # QGIS 4 may use a QGIS4 profile root; install into both so either version finds it.
           for ROOT in QGIS3 QGIS4; do
             PLUGIN_DIR="$HOME/.local/share/QGIS/$ROOT/profiles/default/python/plugins"
